@@ -5,20 +5,49 @@ import "forge-std/Test.sol";
 import "../../contracts/modules/AaveScoreModule.sol";
 import "../../contracts/mocks/MockAavePool.sol";
 import "../../contracts/ScoreConstants.sol";
+import "../../contracts/lib/EIP712Lib.sol";
 
 contract AaveScoreModuleTest is Test {
     MockAavePool mockPool;
     AaveScoreModule aaveModule;
 
     address governance = address(this);
-    address keeper = address(0xbeef);
+    uint256 keeperPrivateKey = 0xaaa;
+    address keeper;
     address wallet = address(0x1234);
 
     function setUp() public {
         vm.warp(1_700_000_000);
         mockPool = new MockAavePool();
+        keeper = vm.addr(keeperPrivateKey);
         aaveModule = new AaveScoreModule(address(mockPool), governance);
         aaveModule.setKeeper(keeper, true);
+    }
+
+    function _signWalletMeta(
+        uint256 pk,
+        address wallet_,
+        uint256 liquidationCount,
+        uint256 suppliedAssetCount,
+        uint256 timestamp
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                aaveModule.WALLET_META_TYPEHASH(),
+                wallet_,
+                liquidationCount,
+                suppliedAssetCount,
+                timestamp,
+                aaveModule.nonces(wallet_)
+            )
+        );
+        bytes32 digest = EIP712Lib.toTypedDataHash(
+            EIP712Lib.domainSeparator("AaveScoreModule", "1", address(aaveModule)),
+            structHash
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        if (v < 27) v += 27;
+        return abi.encodePacked(r, s, v);
     }
 
     function _setData(uint256 collateral, uint256 debt, uint256 healthFactor) internal {
@@ -88,8 +117,8 @@ contract AaveScoreModuleTest is Test {
 
     function test_LiquidationCountPenalty() public {
         _setData(1000e8, 500e8, 2e18);
-        vm.prank(keeper);
-        aaveModule.submitWalletMeta(wallet, 2, 1); // 2 liquidations, 1 asset
+        bytes memory sig = _signWalletMeta(keeperPrivateKey, wallet, 2, 1, block.timestamp);
+        aaveModule.submitWalletMeta(wallet, 2, 1, block.timestamp, sig); // 2 liquidations, 1 asset
         (int256 score,,) = aaveModule.evaluate(wallet);
         // 5000 + 2500 + 1000 - (2 * 1500) = 5500
         assertEq(score, ScoreConstants.BASE_AAVE_SCORE + 2500 + 1000 - 3000);
@@ -97,11 +126,17 @@ contract AaveScoreModuleTest is Test {
 
     function test_AssetCountBonus() public {
         _setData(1000e8, 500e8, 2e18);
-        vm.prank(keeper);
-        aaveModule.submitWalletMeta(wallet, 0, 3); // 0 liquidations, 3 assets
+        bytes memory sig = _signWalletMeta(keeperPrivateKey, wallet, 0, 3, block.timestamp);
+        aaveModule.submitWalletMeta(wallet, 0, 3, block.timestamp, sig); // 0 liquidations, 3 assets
         (int256 score,,) = aaveModule.evaluate(wallet);
         // 5000 + 2500 + 1000 + 1000 = 9500
         assertEq(score, ScoreConstants.BASE_AAVE_SCORE + 2500 + 1000 + 1000);
+    }
+
+    function test_UnauthorizedKeeper() public {
+        bytes memory badSig = _signWalletMeta(0xdeadbeef, wallet, 0, 1, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(AaveScoreModule.UnauthorizedKeeper.selector, vm.addr(0xdeadbeef)));
+        aaveModule.submitWalletMeta(wallet, 0, 1, block.timestamp, badSig);
     }
 
     function test_GovernanceTransfer() public {
@@ -114,9 +149,9 @@ contract AaveScoreModuleTest is Test {
 
     function test_Pause_SubmitWalletMetaBlocked() public {
         aaveModule.pause();
-        vm.prank(keeper);
+        bytes memory sig = _signWalletMeta(keeperPrivateKey, wallet, 0, 1, block.timestamp);
         vm.expectRevert(abi.encodeWithSelector(AaveScoreModule.ContractPaused.selector));
-        aaveModule.submitWalletMeta(wallet, 0, 1);
+        aaveModule.submitWalletMeta(wallet, 0, 1, block.timestamp, sig);
     }
 
     function test_Pause_Unpause() public {

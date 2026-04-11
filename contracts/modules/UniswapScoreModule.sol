@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "../interfaces/IScoreModule.sol";
 import "../ScoreConstants.sol";
+import "../lib/EIP712Lib.sol";
 
 contract UniswapScoreModule is IScoreModule {
     error UnauthorizedKeeper(address caller);
@@ -68,8 +69,16 @@ contract UniswapScoreModule is IScoreModule {
         emit Unpaused(msg.sender);
     }
 
+    bytes32 public constant SWAP_SUMMARY_TYPEHASH = keccak256(
+        "SwapSummary(address wallet,uint256 swapCount,uint256 volumeUSD,int256 netPnL,uint256 avgSlippageBps,uint256 feeToPnlRatioBps,bool washTradeFlag,bool counterpartyConcentrationFlag,uint256 timestamp,bytes32 evidenceHash,uint256 nonce)"
+    );
+
+    mapping(address => uint256) public nonces;
+    bytes32 private immutable _domainSeparator;
+
     constructor(address governance_) {
         governance = governance_;
+        _domainSeparator = EIP712Lib.domainSeparator("UniswapScoreModule", "1", address(this));
     }
 
     function setKeeper(address keeper, bool allowed) external onlyGovernance {
@@ -88,7 +97,27 @@ contract UniswapScoreModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitSwapSummary(address wallet, SwapSummary calldata summary) external onlyKeeper whenNotPaused {
+    function submitSwapSummary(address wallet, SwapSummary calldata summary, bytes calldata signature) external whenNotPaused {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SWAP_SUMMARY_TYPEHASH,
+                wallet,
+                summary.swapCount,
+                summary.volumeUSD,
+                summary.netPnL,
+                summary.avgSlippageBps,
+                summary.feeToPnlRatioBps,
+                summary.washTradeFlag,
+                summary.counterpartyConcentrationFlag,
+                summary.timestamp,
+                summary.evidenceHash,
+                nonces[wallet]++
+            )
+        );
+        bytes32 digest = EIP712Lib.toTypedDataHash(_domainSeparator, structHash);
+        address signer = EIP712Lib.recoverSigner(digest, signature);
+        if (!keepers[signer]) revert UnauthorizedKeeper(signer);
+
         latestSwapSummary[wallet] = summary;
         emit SwapSummarySubmitted(
             wallet,

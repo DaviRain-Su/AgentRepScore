@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "../interfaces/IScoreModule.sol";
 import "../ScoreConstants.sol";
+import "../lib/EIP712Lib.sol";
 
 contract BaseActivityModule is IScoreModule {
     error UnauthorizedKeeper(address caller);
@@ -59,8 +60,16 @@ contract BaseActivityModule is IScoreModule {
         emit Unpaused(msg.sender);
     }
 
+    bytes32 public constant ACTIVITY_SUMMARY_TYPEHASH = keccak256(
+        "ActivitySummary(address wallet,uint256 txCount,uint256 firstTxTimestamp,uint256 lastTxTimestamp,uint256 uniqueCounterparties,uint256 timestamp,bytes32 evidenceHash,uint256 nonce)"
+    );
+
+    mapping(address => uint256) public nonces;
+    bytes32 private immutable _domainSeparator;
+
     constructor(address governance_) {
         governance = governance_;
+        _domainSeparator = EIP712Lib.domainSeparator("BaseActivityModule", "1", address(this));
     }
 
     function setKeeper(address keeper, bool allowed) external onlyGovernance {
@@ -79,7 +88,24 @@ contract BaseActivityModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitActivitySummary(address wallet, ActivitySummary calldata summary) external onlyKeeper whenNotPaused {
+    function submitActivitySummary(address wallet, ActivitySummary calldata summary, bytes calldata signature) external whenNotPaused {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                ACTIVITY_SUMMARY_TYPEHASH,
+                wallet,
+                summary.txCount,
+                summary.firstTxTimestamp,
+                summary.lastTxTimestamp,
+                summary.uniqueCounterparties,
+                summary.timestamp,
+                summary.evidenceHash,
+                nonces[wallet]++
+            )
+        );
+        bytes32 digest = EIP712Lib.toTypedDataHash(_domainSeparator, structHash);
+        address signer = EIP712Lib.recoverSigner(digest, signature);
+        if (!keepers[signer]) revert UnauthorizedKeeper(signer);
+
         latestActivitySummary[wallet] = summary;
         emit ActivitySummarySubmitted(wallet, summary.txCount, summary.uniqueCounterparties, summary.evidenceHash);
     }

@@ -15,3 +15,5 @@
 - **Keeper state file**: The local deduplication state file path defaults to `.keeper-state.json` and can be overridden with the `KEEPER_STATE_PATH` env var.
 - **Governance multisig support**: Deployment scripts (`scripts/deploy-mainnet.ts`, `scripts/redeploy-validator-testnet.ts`) read `GOVERNANCE_SAFE` from `.env` and use it as the validator's initial governance address. If unset, they fall back to the deployer address.
 - **Mock multisig for testing**: `contracts/mocks/MockMultisig.sol` provides a 2-of-3 multisig suitable for Foundry tests that need to demonstrate governance operations executed through a Safe-like contract.
+- **EIP-712 keeper signatures**: All `submit*` functions on score modules now require a per-wallet-nonce EIP-712 signature instead of `onlyKeeper`. Keeper scripts use `src/skill/eip712.ts` (`signSwapSummary`, `signActivitySummary`, `signWalletMeta`) and read the current nonce via the `nonces(address)` view before signing.
+- **Stack-too-deep fix**: Complex `abi.encode` calls in module submission functions may trigger "Stack too deep". The project compiles with `via_ir = true` in `foundry.toml` to avoid this.

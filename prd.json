@@ -109,7 +109,7 @@
         "Solidity tests pass (`forge test`)"
       ],
       "priority": 8,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-009",

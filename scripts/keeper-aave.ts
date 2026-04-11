@@ -17,6 +17,10 @@ import {
   saveKeeperState,
   submitWithRetry,
 } from "../src/skill/keeper-utils.ts";
+import {
+  fetchNonce,
+  signWalletMeta,
+} from "../src/skill/eip712.ts";
 
 dotenv.config();
 
@@ -30,6 +34,8 @@ const aaveModuleAbi = [
       { internalType: "address", name: "wallet", type: "address" },
       { internalType: "uint256", name: "liquidationCount", type: "uint256" },
       { internalType: "uint256", name: "suppliedAssetCount", type: "uint256" },
+      { internalType: "uint256", name: "timestamp", type: "uint256" },
+      { internalType: "bytes", name: "signature", type: "bytes" },
     ],
     name: "submitWalletMeta",
     outputs: [],
@@ -122,13 +128,16 @@ async function main() {
     transport: http(RPC_URL),
   });
 
+  const nonce = await fetchNonce(publicClient, AAVE_MODULE as Address, wallet);
+  const signature = await signWalletMeta(walletClient, AAVE_MODULE as Address, wallet, liquidationCount, suppliedAssetCount, now, nonce);
+
   const receipt = await submitWithRetry(
     async () => {
       const txHash = await walletClient.writeContract({
         address: AAVE_MODULE as Address,
         abi: aaveModuleAbi,
         functionName: "submitWalletMeta",
-        args: [wallet, liquidationCount, suppliedAssetCount],
+        args: [wallet, liquidationCount, suppliedAssetCount, now, signature],
       });
       console.log(`Transaction submitted: ${txHash}`);
       return publicClient.waitForTransactionReceipt({

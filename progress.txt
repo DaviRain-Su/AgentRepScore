@@ -124,3 +124,20 @@ Tool: pi
   - `UniswapScoreModule` struct literals in Foundry tests use positional constructor syntax (`SwapSummary(0, 0, 0, 0, 0, false, false, 0, 0)`), so adding a field requires updating every literal in the test file.
   - The concentration threshold (>70%) means tests with exactly 2 unique counterparties out of 2 total swaps will always trigger the flag (100% > 70%). To write a "no flag" aggregation test, use at least 3 unique counterparties.
 ---
+
+## 2026-04-12 06:25 CST - US-008
+Tool: pi
+- Added EIP-712 signature verification for all keeper submissions across UniswapScoreModule, BaseActivityModule, and AaveScoreModule.
+- Created `contracts/lib/EIP712Lib.sol` with `domainSeparator`, `toTypedDataHash`, and `recoverSigner` helpers (using `bytes memory` + `mload` to avoid calldata offset ambiguity).
+- Updated each score module to include a `nonces` mapping, a per-module EIP-712 domain separator, and a typehash constant. `submit*` functions now accept a `bytes calldata signature`, verify it against an authorized keeper address, and increment the wallet nonce.
+- Added `src/skill/eip712.ts` providing viem-based `signTypedData` wrappers (`signSwapSummary`, `signActivitySummary`, `signWalletMeta`) and `fetchNonce` helper.
+- Updated keeper scripts (`indexer-uniswap.ts`, `keeper-rpc.ts`, `keeper-oklink.ts`, `keeper-aave.ts`) to fetch the current nonce, sign the payload, and pass the signature on-chain.
+- Added `test/foundry/EIP712Keeper.t.sol` with dedicated tests validating signatures are accepted and invalid signatures revert. Updated existing module tests to generate valid keeper signatures.
+- Enabled `via_ir = true` in `foundry.toml` to resolve "Stack too deep" caused by large `abi.encode` blocks in the updated submission functions.
+- All quality checks pass: `pnpm test:all` (vitest 70 tests, forge 91 tests).
+- Files changed: `contracts/lib/EIP712Lib.sol`, `contracts/modules/UniswapScoreModule.sol`, `contracts/modules/BaseActivityModule.sol`, `contracts/modules/AaveScoreModule.sol`, `src/skill/eip712.ts`, `scripts/indexer-uniswap.ts`, `scripts/keeper-rpc.ts`, `scripts/keeper-oklink.ts`, `scripts/keeper-aave.ts`, `test/foundry/EIP712Keeper.t.sol`, `test/foundry/UniswapScoreModule.t.sol`, `test/foundry/BaseActivityModule.t.sol`, `test/foundry/AaveScoreModule.t.sol`, `foundry.toml`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - When using custom `recoverSigner` with `bytes calldata`, prefer `bytes memory` + `mload` in inline assembly; reading `calldataload(signature.offset)` is error-prone because `.offset` semantics differ between Solidity versions and can return wrong signature bytes.
+  - Adding many `abi.encode` arguments in a single function easily triggers "Stack too deep" without `via_ir = true`.
+  - When a module's `submit*` function gains new parameters (e.g., `timestamp` + `signature` for Aave), update both the Foundry test helpers and the TypeScript inline ABIs in keeper scripts to stay in sync.
+---

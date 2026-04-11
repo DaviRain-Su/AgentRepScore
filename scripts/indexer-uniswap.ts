@@ -28,6 +28,10 @@ import {
   saveKeeperState,
   submitWithRetry,
 } from "../src/skill/keeper-utils.ts";
+import {
+  fetchNonce,
+  signSwapSummary,
+} from "../src/skill/eip712.ts";
 
 dotenv.config();
 
@@ -88,6 +92,7 @@ const submitSwapSummaryAbi = [
         name: "summary",
         type: "tuple",
       },
+      { internalType: "bytes", name: "signature", type: "bytes" },
     ],
     name: "submitSwapSummary",
     outputs: [],
@@ -435,13 +440,16 @@ async function main() {
     transport: http(RPC_URL),
   });
 
+  const nonce = await fetchNonce(publicClient, UNISWAP_MODULE as Address, wallet);
+  const signature = await signSwapSummary(walletClient, UNISWAP_MODULE as Address, wallet, summary, nonce);
+
   const receipt = await submitWithRetry(
     async () => {
       const txHash = await walletClient.writeContract({
         address: UNISWAP_MODULE as Address,
         abi: submitSwapSummaryAbi,
         functionName: "submitSwapSummary",
-        args: [wallet, summary],
+        args: [wallet, summary, signature],
       });
       console.log(`Transaction submitted: ${txHash}`);
       return publicClient.waitForTransactionReceipt({

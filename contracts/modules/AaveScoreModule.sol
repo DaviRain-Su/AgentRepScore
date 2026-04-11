@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "../interfaces/IScoreModule.sol";
 import "../ScoreConstants.sol";
+import "../lib/EIP712Lib.sol";
 
 interface IPool {
     function getUserAccountData(address user)
@@ -36,7 +37,7 @@ contract AaveScoreModule is IScoreModule {
 
     mapping(address => WalletMeta) public walletMeta;
 
-    event LiquidationCountUpdated(address indexed wallet, uint256 liquidationCount, uint256 suppliedAssetCount);
+    event LiquidationCountUpdated(address indexed wallet, uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp);
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
 
@@ -70,9 +71,17 @@ contract AaveScoreModule is IScoreModule {
         emit Unpaused(msg.sender);
     }
 
+    bytes32 public constant WALLET_META_TYPEHASH = keccak256(
+        "WalletMeta(address wallet,uint256 liquidationCount,uint256 suppliedAssetCount,uint256 timestamp,uint256 nonce)"
+    );
+
+    mapping(address => uint256) public nonces;
+    bytes32 private immutable _domainSeparator;
+
     constructor(address aavePool_, address governance_) {
         aavePool = IPool(aavePool_);
         governance = governance_;
+        _domainSeparator = EIP712Lib.domainSeparator("AaveScoreModule", "1", address(this));
     }
 
     function setKeeper(address keeper, bool allowed) external onlyGovernance {
@@ -91,15 +100,28 @@ contract AaveScoreModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitWalletMeta(address wallet, uint256 liquidationCount, uint256 suppliedAssetCount)
+    function submitWalletMeta(address wallet, uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp, bytes calldata signature)
         external
-        onlyKeeper
         whenNotPaused
     {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                WALLET_META_TYPEHASH,
+                wallet,
+                liquidationCount,
+                suppliedAssetCount,
+                timestamp,
+                nonces[wallet]++
+            )
+        );
+        bytes32 digest = EIP712Lib.toTypedDataHash(_domainSeparator, structHash);
+        address signer = EIP712Lib.recoverSigner(digest, signature);
+        if (!keepers[signer]) revert UnauthorizedKeeper(signer);
+
         walletMeta[wallet] = WalletMeta({
-            liquidationCount: liquidationCount, suppliedAssetCount: suppliedAssetCount, timestamp: block.timestamp
+            liquidationCount: liquidationCount, suppliedAssetCount: suppliedAssetCount, timestamp: timestamp
         });
-        emit LiquidationCountUpdated(wallet, liquidationCount, suppliedAssetCount);
+        emit LiquidationCountUpdated(wallet, liquidationCount, suppliedAssetCount, timestamp);
     }
 
     function name() external pure override returns (string memory) {

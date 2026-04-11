@@ -4,34 +4,62 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "../../contracts/modules/BaseActivityModule.sol";
 import "../../contracts/ScoreConstants.sol";
+import "../../contracts/lib/EIP712Lib.sol";
 
 contract BaseActivityModuleTest is Test {
     BaseActivityModule baseModule;
     address governance = address(this);
-    address keeper = address(0x999);
+    uint256 keeperPrivateKey = 0xaaa;
+    address keeper;
     address wallet = address(0x1234);
 
     function setUp() public {
         vm.warp(1_700_000_000);
+        keeper = vm.addr(keeperPrivateKey);
         baseModule = new BaseActivityModule(governance);
         baseModule.setKeeper(keeper, true);
+    }
+
+    function _signActivitySummary(uint256 pk, address wallet_, BaseActivityModule.ActivitySummary memory summary)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                baseModule.ACTIVITY_SUMMARY_TYPEHASH(),
+                wallet_,
+                summary.txCount,
+                summary.firstTxTimestamp,
+                summary.lastTxTimestamp,
+                summary.uniqueCounterparties,
+                summary.timestamp,
+                summary.evidenceHash,
+                baseModule.nonces(wallet_)
+            )
+        );
+        bytes32 digest = EIP712Lib.toTypedDataHash(
+            EIP712Lib.domainSeparator("BaseActivityModule", "1", address(baseModule)),
+            structHash
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        if (v < 27) v += 27;
+        return abi.encodePacked(r, s, v);
     }
 
     function _submit(uint256 txCount, uint256 firstTx, uint256 lastTx, uint256 counterparties, uint256 timestamp)
         internal
     {
-        vm.prank(keeper);
-        baseModule.submitActivitySummary(
-            wallet,
-            BaseActivityModule.ActivitySummary({
-                txCount: txCount,
-                firstTxTimestamp: firstTx,
-                lastTxTimestamp: lastTx,
-                uniqueCounterparties: counterparties,
-                timestamp: timestamp,
-                evidenceHash: keccak256("evidence")
-            })
-        );
+        BaseActivityModule.ActivitySummary memory summary = BaseActivityModule.ActivitySummary({
+            txCount: txCount,
+            firstTxTimestamp: firstTx,
+            lastTxTimestamp: lastTx,
+            uniqueCounterparties: counterparties,
+            timestamp: timestamp,
+            evidenceHash: keccak256("evidence")
+        });
+        bytes memory sig = _signActivitySummary(keeperPrivateKey, wallet, summary);
+        baseModule.submitActivitySummary(wallet, summary, sig);
     }
 
     function test_NoActivity() public view {
@@ -83,16 +111,18 @@ contract BaseActivityModuleTest is Test {
     }
 
     function test_UnauthorizedKeeper() public {
-        vm.prank(address(0xdead));
-        vm.expectRevert(abi.encodeWithSelector(BaseActivityModule.UnauthorizedKeeper.selector, address(0xdead)));
-        baseModule.submitActivitySummary(wallet, BaseActivityModule.ActivitySummary(0, 0, 0, 0, 0, 0));
+        BaseActivityModule.ActivitySummary memory summary = BaseActivityModule.ActivitySummary(0, 0, 0, 0, 0, 0);
+        bytes memory badSig = _signActivitySummary(0xdeadbeef, wallet, summary);
+        vm.expectRevert(abi.encodeWithSelector(BaseActivityModule.UnauthorizedKeeper.selector, vm.addr(0xdeadbeef)));
+        baseModule.submitActivitySummary(wallet, summary, badSig);
     }
 
     function test_Pause_SubmitActivitySummaryBlocked() public {
         baseModule.pause();
-        vm.prank(keeper);
+        BaseActivityModule.ActivitySummary memory summary = BaseActivityModule.ActivitySummary(0, 0, 0, 0, 0, 0);
+        bytes memory sig = _signActivitySummary(keeperPrivateKey, wallet, summary);
         vm.expectRevert(abi.encodeWithSelector(BaseActivityModule.ContractPaused.selector));
-        baseModule.submitActivitySummary(wallet, BaseActivityModule.ActivitySummary(0, 0, 0, 0, 0, 0));
+        baseModule.submitActivitySummary(wallet, summary, sig);
     }
 
     function test_Pause_Unpause() public {

@@ -4,17 +4,50 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "../../contracts/modules/UniswapScoreModule.sol";
 import "../../contracts/ScoreConstants.sol";
+import "../../contracts/lib/EIP712Lib.sol";
 
 contract UniswapScoreModuleTest is Test {
     UniswapScoreModule uniModule;
     address governance = address(this);
-    address keeper = address(0x999);
+    uint256 keeperPrivateKey = 0xaaa;
+    address keeper;
     address wallet = address(0x1234);
 
     function setUp() public {
         vm.warp(1_700_000_000);
+        keeper = vm.addr(keeperPrivateKey);
         uniModule = new UniswapScoreModule(governance);
         uniModule.setKeeper(keeper, true);
+    }
+
+    function _signSwapSummary(uint256 pk, address wallet_, UniswapScoreModule.SwapSummary memory summary)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                uniModule.SWAP_SUMMARY_TYPEHASH(),
+                wallet_,
+                summary.swapCount,
+                summary.volumeUSD,
+                summary.netPnL,
+                summary.avgSlippageBps,
+                summary.feeToPnlRatioBps,
+                summary.washTradeFlag,
+                summary.counterpartyConcentrationFlag,
+                summary.timestamp,
+                summary.evidenceHash,
+                uniModule.nonces(wallet_)
+            )
+        );
+        bytes32 digest = EIP712Lib.toTypedDataHash(
+            EIP712Lib.domainSeparator("UniswapScoreModule", "1", address(uniModule)),
+            structHash
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        if (v < 27) v += 27;
+        return abi.encodePacked(r, s, v);
     }
 
     function _submit(
@@ -26,21 +59,19 @@ contract UniswapScoreModuleTest is Test {
         bool counterpartyConcentration,
         uint256 timestamp
     ) internal {
-        vm.prank(keeper);
-        uniModule.submitSwapSummary(
-            wallet,
-            UniswapScoreModule.SwapSummary({
-                swapCount: swapCount,
-                volumeUSD: volumeUSD,
-                netPnL: netPnL,
-                avgSlippageBps: slippage,
-                feeToPnlRatioBps: 0,
-                washTradeFlag: washTrade,
-                counterpartyConcentrationFlag: counterpartyConcentration,
-                timestamp: timestamp,
-                evidenceHash: keccak256("evidence")
-            })
-        );
+        UniswapScoreModule.SwapSummary memory summary = UniswapScoreModule.SwapSummary({
+            swapCount: swapCount,
+            volumeUSD: volumeUSD,
+            netPnL: netPnL,
+            avgSlippageBps: slippage,
+            feeToPnlRatioBps: 0,
+            washTradeFlag: washTrade,
+            counterpartyConcentrationFlag: counterpartyConcentration,
+            timestamp: timestamp,
+            evidenceHash: keccak256("evidence")
+        });
+        bytes memory sig = _signSwapSummary(keeperPrivateKey, wallet, summary);
+        uniModule.submitSwapSummary(wallet, summary, sig);
     }
 
     function test_NoHistory() public view {
@@ -106,16 +137,20 @@ contract UniswapScoreModuleTest is Test {
     }
 
     function test_UnauthorizedKeeper() public {
-        vm.prank(address(0xdead));
-        vm.expectRevert(abi.encodeWithSelector(UniswapScoreModule.UnauthorizedKeeper.selector, address(0xdead)));
-        uniModule.submitSwapSummary(wallet, UniswapScoreModule.SwapSummary(0, 0, 0, 0, 0, false, false, 0, 0));
+        UniswapScoreModule.SwapSummary memory summary =
+            UniswapScoreModule.SwapSummary(0, 0, 0, 0, 0, false, false, 0, 0);
+        bytes memory badSig = _signSwapSummary(0xdeadbeef, wallet, summary);
+        vm.expectRevert(abi.encodeWithSelector(UniswapScoreModule.UnauthorizedKeeper.selector, vm.addr(0xdeadbeef)));
+        uniModule.submitSwapSummary(wallet, summary, badSig);
     }
 
     function test_Pause_SubmitSwapSummaryBlocked() public {
         uniModule.pause();
-        vm.prank(keeper);
+        UniswapScoreModule.SwapSummary memory summary =
+            UniswapScoreModule.SwapSummary(0, 0, 0, 0, 0, false, false, 0, 0);
+        bytes memory sig = _signSwapSummary(keeperPrivateKey, wallet, summary);
         vm.expectRevert(abi.encodeWithSelector(UniswapScoreModule.ContractPaused.selector));
-        uniModule.submitSwapSummary(wallet, UniswapScoreModule.SwapSummary(0, 0, 0, 0, 0, false, false, 0, 0));
+        uniModule.submitSwapSummary(wallet, summary, sig);
     }
 
     function test_Pause_Unpause() public {

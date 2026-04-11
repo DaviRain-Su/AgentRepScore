@@ -22,4 +22,5 @@ node_modules/
 
 # lib
 lib
+!contracts/lib/
 artifacts/
