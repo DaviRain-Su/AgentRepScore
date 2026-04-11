@@ -1,9 +1,8 @@
 /**
- * Real keeper script that fetches full on-chain activity data from OKLink
- * Open API and submits it to BaseActivityModule.
+ * Real keeper script that fetches full on-chain activity data from OKX
+ * OnchainOS Wallet API and submits it to BaseActivityModule.
  *
- * OKLink provides paginated, full-history transaction data for X Layer
- * with no block range limitations.
+ * Uses paginated transaction history API with no block range limitations.
  *
  * Usage:
  *   npx tsx scripts/keeper-oklink.ts --wallet=0x... [--dry-run]
@@ -11,11 +10,10 @@
  * Required env vars:
  *   PRIVATE_KEY          - Keeper wallet private key
  *   BASE_MODULE          - BaseActivityModule contract address
- *   OKLINK_API_KEY       - OKLink Open API key (get from https://www.oklink.com/account/my-api)
- *   XLAYER_TESTNET_RPC   - X Layer testnet RPC (optional)
- *
- * Optional env vars:
- *   OKLINK_CHAIN         - Chain short name (default: XLAYER_TESTNET)
+ *   OKX_API_KEY          - OKX OS API key
+ *   OKX_API_SECRET       - OKX OS API secret (for HMAC signing)
+ *   OKX_PASSPHRASE       - OKX OS API passphrase
+ *   OKX_PROJECT_ID       - OKX OS project ID
  */
 import {
   createWalletClient,
@@ -27,39 +25,45 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { xLayerTestnet } from "viem/chains";
+import { createHmac } from "node:crypto";
 import * as dotenv from "dotenv";
 
 dotenv.config();
 
-const OKLINK_API_KEY = process.env.OKLINK_API_KEY || process.env.OKX_API_KEY || "";
-const OKLINK_CHAIN = process.env.OKLINK_CHAIN || "XLAYER_TESTNET";
+const OKX_API_KEY = process.env.OKX_API_KEY || "";
+const OKX_API_SECRET = process.env.OKX_API_SECRET || "";
+const OKX_PASSPHRASE = process.env.OKX_PASSPHRASE || "";
+const OKX_PROJECT_ID = process.env.OKX_PROJECT_ID || "";
 const BASE_MODULE = process.env.BASE_MODULE || "";
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 const RPC_URL = process.env.XLAYER_TESTNET_RPC || "https://testrpc.xlayer.tech/terigon";
-const OKLINK_BASE_URL = "https://www.oklink.com";
 
-interface OkLinkTx {
-  txId: string;
-  from: string;
-  to: string;
-  transactionTime: string; // milliseconds as string
-  amount: string;
-  state: string;
+// X Layer chainIndex in OKX OnchainOS = 196
+const XLAYER_CHAIN_INDEX = "196";
+const OKX_BASE_URL = "https://web3.okx.com";
+
+interface OkxTx {
+  chainIndex: string;
+  txHash: string;
+  iType: string;
   methodId: string;
-  isFromContract: boolean;
-  isToContract: boolean;
+  nonce: string;
+  txTime: string; // milliseconds as string
+  from: Array<{ address: string; amount: string }>;
+  to: Array<{ address: string; amount: string }>;
+  tokenAddress: string;
+  amount: string;
+  symbol: string;
+  txFee: string;
+  txStatus: string;
 }
 
-interface OkLinkTxListResponse {
+interface OkxTxResponse {
   code: string;
   msg: string;
   data: Array<{
-    page: string;
-    limit: string;
-    totalPage: string;
-    chainFullName: string;
-    chainShortName: string;
-    transactionLists: OkLinkTx[];
+    cursor: string;
+    transactionList: OkxTx[];
   }>;
 }
 
@@ -68,63 +72,70 @@ interface ActivityData {
   firstTxTimestamp: bigint;
   lastTxTimestamp: bigint;
   uniqueCounterparties: bigint;
-  totalPages: number;
 }
 
-async function oklinkFetch(path: string, params: Record<string, string>): Promise<any> {
-  const url = new URL(path, OKLINK_BASE_URL);
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, v);
-  }
+function signRequest(timestamp: string, method: string, path: string, body: string = ""): string {
+  const prehash = timestamp + method.toUpperCase() + path + body;
+  return createHmac("sha256", OKX_API_SECRET).update(prehash).digest("base64");
+}
 
-  const res = await fetch(url.toString(), {
-    headers: { "Ok-Access-Key": OKLINK_API_KEY },
+async function okxFetch(path: string): Promise<any> {
+  const timestamp = new Date().toISOString();
+  const sign = signRequest(timestamp, "GET", path);
+
+  const url = OKX_BASE_URL + path;
+  const res = await fetch(url, {
+    headers: {
+      "OK-ACCESS-KEY": OKX_API_KEY,
+      "OK-ACCESS-SIGN": sign,
+      "OK-ACCESS-TIMESTAMP": timestamp,
+      "OK-ACCESS-PASSPHRASE": OKX_PASSPHRASE,
+      "OK-ACCESS-PROJECT": OKX_PROJECT_ID,
+      "Content-Type": "application/json",
+    },
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`OKLink API failed (${res.status}): ${text}`);
+    throw new Error(`OKX API failed (${res.status}): ${text}`);
   }
 
   const data = await res.json();
-  if (data.code !== "0") {
-    throw new Error(`OKLink API error: code=${data.code} msg=${data.msg}`);
+  if (data.code !== "0" && data.code !== 0) {
+    throw new Error(`OKX API error: code=${data.code} msg=${data.msg}`);
   }
   return data;
 }
 
-async function fetchAllTransactions(wallet: string): Promise<OkLinkTx[]> {
-  const allTxs: OkLinkTx[] = [];
-  let page = 1;
-  let totalPage = 1;
-  const limit = "100"; // max per page
+async function fetchAllTransactions(wallet: string): Promise<OkxTx[]> {
+  const allTxs: OkxTx[] = [];
+  let cursor = "";
+  let page = 0;
 
-  console.log(`  Fetching transactions from OKLink (chain: ${OKLINK_CHAIN})...`);
+  console.log(`  Fetching transactions from OKX OnchainOS (chainIndex: ${XLAYER_CHAIN_INDEX})...`);
 
-  while (page <= totalPage) {
-    const resp: OkLinkTxListResponse = await oklinkFetch(
-      "/api/v5/explorer/address/transaction-list",
-      {
-        chainShortName: OKLINK_CHAIN,
-        address: wallet,
-        page: String(page),
-        limit,
-      }
-    );
+  while (true) {
+    page++;
+    let path = `/api/v5/wallet/post-transaction/transactions-by-address?address=${wallet}&chains=${XLAYER_CHAIN_INDEX}&limit=20`;
+    if (cursor) {
+      path += `&cursor=${cursor}`;
+    }
+
+    const resp: OkxTxResponse = await okxFetch(path);
 
     if (!resp.data || resp.data.length === 0) break;
 
     const pageData = resp.data[0];
-    totalPage = parseInt(pageData.totalPage, 10);
-    allTxs.push(...pageData.transactionLists);
+    if (!pageData.transactionList || pageData.transactionList.length === 0) break;
 
-    console.log(`  Page ${page}/${totalPage}: ${pageData.transactionLists.length} txs (total so far: ${allTxs.length})`);
-    page++;
+    allTxs.push(...pageData.transactionList);
+    console.log(`  Page ${page}: ${pageData.transactionList.length} txs (total: ${allTxs.length})`);
 
-    // Rate limiting: OKLink free tier has rate limits
-    if (page <= totalPage) {
-      await sleep(200);
-    }
+    cursor = pageData.cursor;
+    if (!cursor) break;
+
+    // Rate limiting
+    await sleep(300);
   }
 
   return allTxs;
@@ -134,14 +145,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function analyzeTransactions(txs: OkLinkTx[], wallet: string): ActivityData {
+function analyzeTransactions(txs: OkxTx[], wallet: string): ActivityData {
   if (txs.length === 0) {
     return {
       txCount: 0n,
       firstTxTimestamp: 0n,
       lastTxTimestamp: 0n,
       uniqueCounterparties: 0n,
-      totalPages: 0,
     };
   }
 
@@ -152,24 +162,32 @@ function analyzeTransactions(txs: OkLinkTx[], wallet: string): ActivityData {
   let outgoingCount = 0;
 
   for (const tx of txs) {
-    const ts = parseInt(tx.transactionTime, 10); // milliseconds
+    if (tx.txStatus !== "success") continue;
+
+    const ts = parseInt(tx.txTime, 10);
     const tsSec = Math.floor(ts / 1000);
 
-    if (tsSec < firstTs) firstTs = tsSec;
+    if (tsSec > 0 && tsSec < firstTs) firstTs = tsSec;
     if (tsSec > lastTs) lastTs = tsSec;
 
-    // Count outgoing txs and track counterparties
-    if (tx.from.toLowerCase() === walletLower) {
+    // Count outgoing txs
+    const isOutgoing = tx.from.some((f) => f.address.toLowerCase() === walletLower);
+    if (isOutgoing) {
       outgoingCount++;
-      if (tx.to && tx.to.toLowerCase() !== walletLower) {
-        counterparties.add(tx.to.toLowerCase());
+      for (const t of tx.to) {
+        if (t.address && t.address.toLowerCase() !== walletLower) {
+          counterparties.add(t.address.toLowerCase());
+        }
       }
     }
 
-    // Also count incoming counterparties for a fuller picture
-    if (tx.to.toLowerCase() === walletLower) {
-      if (tx.from && tx.from.toLowerCase() !== walletLower) {
-        counterparties.add(tx.from.toLowerCase());
+    // Also count incoming counterparties
+    const isIncoming = tx.to.some((t) => t.address.toLowerCase() === walletLower);
+    if (isIncoming) {
+      for (const f of tx.from) {
+        if (f.address && f.address.toLowerCase() !== walletLower) {
+          counterparties.add(f.address.toLowerCase());
+        }
       }
     }
   }
@@ -179,7 +197,6 @@ function analyzeTransactions(txs: OkLinkTx[], wallet: string): ActivityData {
     firstTxTimestamp: firstTs === Infinity ? 0n : BigInt(firstTs),
     lastTxTimestamp: BigInt(lastTs),
     uniqueCounterparties: BigInt(counterparties.size),
-    totalPages: 0,
   };
 }
 
@@ -213,22 +230,16 @@ function printUsage() {
 Usage:
   npx tsx scripts/keeper-oklink.ts --wallet=0x... [--dry-run]
 
-Fetches full on-chain activity data from OKLink Open API (no block range
-limitations) and submits it to BaseActivityModule on X Layer.
-
-Data collected (paginated, full history):
-  - txCount:              total outgoing transactions
-  - firstTxTimestamp:     earliest transaction timestamp
-  - lastTxTimestamp:      most recent transaction timestamp
-  - uniqueCounterparties: distinct addresses interacted with
+Fetches full on-chain activity data from OKX OnchainOS Wallet API
+(paginated, full history) and submits it to BaseActivityModule.
 
 Required env vars:
   PRIVATE_KEY        Keeper wallet private key
   BASE_MODULE        BaseActivityModule contract address
-  OKLINK_API_KEY     OKLink API key (https://www.oklink.com/account/my-api)
-
-Optional env vars:
-  OKLINK_CHAIN       Chain name (default: XLAYER_TESTNET, use XLAYER for mainnet)
+  OKX_API_KEY        OKX OS API key
+  OKX_API_SECRET     OKX OS API secret
+  OKX_PASSPHRASE     OKX OS passphrase
+  OKX_PROJECT_ID     OKX OS project ID
 
 Flags:
   --wallet=0x...     Target wallet to evaluate
@@ -242,9 +253,11 @@ async function main() {
     process.exit(0);
   }
 
-  if (!OKLINK_API_KEY) {
-    console.error("Error: OKLINK_API_KEY not set");
-    console.error("Get your API key at https://www.oklink.com/account/my-api");
+  if (!OKX_API_KEY || !OKX_API_SECRET || !OKX_PASSPHRASE) {
+    console.error("Error: OKX API credentials not fully configured.");
+    console.error("Required: OKX_API_KEY, OKX_API_SECRET, OKX_PASSPHRASE");
+    console.error("Optional: OKX_PROJECT_ID");
+    console.error("Get credentials at https://web3.okx.com/onchainos/docs/waas/okx-waas-requirement-standard");
     process.exit(1);
   }
   if (!PRIVATE_KEY) {
@@ -266,7 +279,7 @@ async function main() {
   const wallet = walletArg.split("=")[1] as Address;
   const dryRun = process.argv.includes("--dry-run");
 
-  console.log(`Fetching full activity data for ${wallet} from OKLink...`);
+  console.log(`Fetching full activity data for ${wallet} from OKX OnchainOS...`);
 
   const txs = await fetchAllTransactions(wallet);
   const activity = analyzeTransactions(txs, wallet);
@@ -274,10 +287,18 @@ async function main() {
   console.log(`\n--- Activity Data (${txs.length} total txs fetched) ---`);
   console.log(`  txCount (outgoing):   ${activity.txCount}`);
   console.log(
-    `  firstTxTimestamp:     ${activity.firstTxTimestamp} (${activity.firstTxTimestamp > 0n ? new Date(Number(activity.firstTxTimestamp) * 1000).toISOString() : "N/A"})`
+    `  firstTxTimestamp:     ${activity.firstTxTimestamp} (${
+      activity.firstTxTimestamp > 0n
+        ? new Date(Number(activity.firstTxTimestamp) * 1000).toISOString()
+        : "N/A"
+    })`
   );
   console.log(
-    `  lastTxTimestamp:      ${activity.lastTxTimestamp} (${activity.lastTxTimestamp > 0n ? new Date(Number(activity.lastTxTimestamp) * 1000).toISOString() : "N/A"})`
+    `  lastTxTimestamp:      ${activity.lastTxTimestamp} (${
+      activity.lastTxTimestamp > 0n
+        ? new Date(Number(activity.lastTxTimestamp) * 1000).toISOString()
+        : "N/A"
+    })`
   );
   console.log(`  uniqueCounterparties: ${activity.uniqueCounterparties}`);
 
@@ -289,7 +310,7 @@ async function main() {
   const now = BigInt(Math.floor(Date.now() / 1000));
   const evidenceHash = keccak256(
     toBytes(
-      `oklink-activity:${wallet.toLowerCase()}:${activity.txCount}:${activity.firstTxTimestamp}:${activity.lastTxTimestamp}:${activity.uniqueCounterparties}:${now}`
+      `okx-activity:${wallet.toLowerCase()}:${activity.txCount}:${activity.firstTxTimestamp}:${activity.lastTxTimestamp}:${activity.uniqueCounterparties}:${now}`
     )
   );
 

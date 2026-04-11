@@ -1,4 +1,6 @@
-# AgentRepScore — 技术规格 (v2.0)
+# AgentRepScore — 技术规格 (v2.2)
+
+> 更新说明：v2.2 基于 Hackathon MVP 完成后的差距分析，标记了已实现功能与 Production 待补齐项。
 
 ---
 
@@ -9,12 +11,12 @@
 | 智能合约 | Solidity | ^0.8.20 |
 | 合约框架 | Hardhat / Foundry | 双工具并用：Hardhat 主部署，Foundry 主测试 |
 | 测试网 | X Layer Sepolia | chainId: 195 |
-| 主网 | X Layer | chainId: 196 |
+| 主网 | X Layer | chainId: 196（代码已支持，待主网部署） |
 | 链下服务 | TypeScript / Node.js | v20+ |
 | 包管理 | pnpm | 推荐 |
 | 外部 SDK | viem | ^2.x，链上读写与事件解析 |
 | 外部 SDK | ethers.js | ^6.x，Hardhat 部署脚本 |
-| 集成 SDK | `@okxweb3/onchainos` | OnchainOS 技能调用 |
+| 集成 SDK | `@okxweb3/onchainos` | OnchainOS 技能调用（设计中有，代码尚未实际集成） |
 
 ---
 
@@ -25,16 +27,20 @@ AgentRepScore/
 ├── contracts/                        # Solidity 合约
 │   ├── interfaces/
 │   │   ├── IScoreModule.sol
+│   │   ├── IERC8004.sol
 │   │   └── IAgentRepValidator.sol
 │   ├── modules/
 │   │   ├── UniswapScoreModule.sol
 │   │   ├── AaveScoreModule.sol
 │   │   └── BaseActivityModule.sol
 │   ├── AgentRepValidator.sol
+│   ├── ScoreConstants.sol
 │   └── mocks/                        # 测试用 mock
 ├── scripts/                          # 部署与治理脚本
 │   ├── deploy-validator.ts
 │   ├── deploy-modules.ts
+│   ├── deploy-mainnet.ts
+│   ├── redeploy-validator-testnet.ts
 │   └── verify-contracts.ts
 ├── src/                              # TypeScript Skill 实现
 │   ├── skill/
@@ -44,10 +50,38 @@ AgentRepScore/
 │   │   │   ├── query.ts
 │   │   │   ├── compare.ts
 │   │   │   └── modules.ts
+│   │   ├── abis.ts                   # 共享 ABI 定义（v2.2 新增）
 │   │   ├── index.ts
 │   │   └── types.ts
 │   ├── integrations/
 │   │   ├── onchainos.ts
+│   │   ├── uniswap-ai.ts
+│   │   └── merkle.ts
+│   ├── utils/
+│   │   ├── score-decay.ts
+│   │   └── format.ts
+│   └── config.ts
+├── test/                             # 测试
+│   ├── foundry/
+│   │   ├── AgentRepValidator.t.sol
+│   │   ├── AgentRepValidator.invariants.t.sol   # 不变量测试（v2.2 新增）
+│   │   ├── UniswapScoreModule.t.sol
+│   │   ├── AaveScoreModule.t.sol
+│   │   └── BaseActivityModule.t.sol
+│   ├── hardhat/
+│   │   └── integration.test.ts
+│   └── skill/                        # TypeScript 单元测试（v2.2 新增）
+│       ├── score-decay.test.ts
+│       └── compare.test.ts
+├── .env.example
+├── hardhat.config.ts
+├── foundry.toml
+├── tsconfig.json
+├── package.json
+├── SKILL.md
+├── DESIGN.md
+└── README.md
+```
 │   │   ├── uniswap-ai.ts
 │   │   └── erc8004.ts
 │   ├── utils/
@@ -165,11 +199,15 @@ contract AgentRepValidator {
     address public immutable reputationRegistry;
     address public immutable validationRegistry;
 
-    // Validation Registry stub（当前标准仍在更新，MVP预留接口）
+    // Validation Registry 请求去重
     mapping(bytes32 => bool) public validationHandled;
 
-    // 治理地址（简化版，后期可迁移到 Timelock / DAO）
+    // 治理地址（已支持 2-step transfer，Production 建议迁移到 Timelock / Multisig）
     address public governance;
+    address public pendingGovernance;
+
+    // Evaluator 角色：governance + 授权的 keeper/operator
+    mapping(address => bool) public evaluators;
 
     struct ModuleConfig {
         IScoreModule module;
@@ -183,6 +221,7 @@ contract AgentRepValidator {
         int256 score;
         uint256 timestamp;
         bytes32 evidenceHash;
+        uint256 confidence;
     }
 
     // agentId => 最新评分
@@ -195,12 +234,17 @@ contract AgentRepValidator {
     uint256 public evaluationCooldown = 1 days;
     mapping(uint256 => uint256) public lastEvaluationTime;
 
+    // Reentrancy Guard (简化版，无 OZ 依赖)
+    uint256 private _status;
+
     // 自定义错误
     error CooldownNotElapsed(uint256 remaining);
     error AgentWalletNotSet(uint256 agentId);
     error ModuleIndexOutOfBounds(uint256 index);
     error UnauthorizedGovernance(address caller);
+    error UnauthorizedEvaluator(address caller);
     error TotalWeightExceeded(uint256 totalWeight);
+    error ValidationRequestNotFound(bytes32 requestHash);
 }
 ```
 
@@ -212,20 +256,27 @@ contract AgentRepValidator {
 | `registerModule(module, weight)` | `onlyGovernance` | 注册新模块，权重为 basis points |
 | `updateWeight(index, weight)` | `onlyGovernance` | 更新已有模块权重 |
 | `setModuleActive(index, active)` | `onlyGovernance` | 启停模块 |
-| `evaluateAgent(agentId)` | `public` | 核心评估函数，结果写入 Reputation Registry |
+| `evaluateAgent(agentId)` | `onlyEvaluator` | 核心评估函数，结果写入 Reputation Registry |
 | `getLatestScore(agentId)` | `view` | 读取最新总分 |
-| `getModuleScores(agentId)` | `view` | 读取各模块最近一次评分 |
+| `getModuleScores(agentId)` | `view` | 读取各模块最近一次评分（含实际 confidence） |
 | `setCooldown(seconds)` | `onlyGovernance` | 调整评估冷却期 |
-| `handleValidationRequest(requestHash, agentId)` | `public` | Validation Registry 预留 stub |
+| `setEvaluator(addr, allowed)` | `onlyGovernance` | 授权/撤销 evaluator 角色 |
+| `initiateGovernanceTransfer(newGov)` | `onlyGovernance` | 发起两步治理转移 |
+| `acceptGovernanceTransfer()` | `pendingGovernance` | 接受治理转移 |
+| `handleValidationRequest(requestHash, agentId)` | `onlyEvaluator` | 处理 Validation Registry 请求；若配置了 validationRegistry，会先校验 requestHash 存在性 |
 
-#### handleValidationRequest（预留）
+#### handleValidationRequest
 
 ```solidity
-function handleValidationRequest(bytes32 requestHash, uint256 agentId) external {
+function handleValidationRequest(bytes32 requestHash, uint256 agentId) external onlyEvaluator nonReentrant {
     if (validationHandled[requestHash]) revert ValidationAlreadyHandled(requestHash);
-    // MVP：仅执行 evaluateAgent，完整 Validation Registry 响应待标准稳定后实现
-    (int256 score, bytes32 evidenceHash) = evaluateAgent(agentId);
+    // 若配置了 validationRegistry，先校验请求存在性
+    if (validationRegistry != address(0)) {
+        bool exists = IValidationRegistry(validationRegistry).validationRequestExists(requestHash);
+        if (!exists) revert ValidationRequestNotFound(requestHash);
+    }
     validationHandled[requestHash] = true;
+    (int256 score, bytes32 evidenceHash) = _evaluateAgent(agentId);
     emit ValidationResponded(requestHash, agentId, score, evidenceHash);
 }
 ```
@@ -390,10 +441,8 @@ function evaluate(address wallet)
 
 **清算计数实现方案：**
 - 由于 Aave 的 `LiquidationCall` 事件是日志，合约无法直接读取历史。
-- **MVP 方案 A（推荐）：** 链下索引器计算 `liquidationCount`，通过 `evaluate` 的 `evidence` + Merkle 证明传递；合约仅验证不低于某个阈值。
-- **MVP 方案 B：** 合约维护一个 `mapping(address => uint256)`，由可信 oracle/keepers 定期同步清算次数（简化实现但增加信任假设）。
-
-**本版本采用方案 A：链下证据 + 链上验证模式。**
+- ~~MVP 方案 A（推荐）~~：链下索引器计算 `liquidationCount`，通过 Merkle 证明传递。该方案尚未实现，属于 P2 任务。
+- **MVP 实际采用：** keeper 调用 `submitWalletMeta(wallet, liquidationCount, suppliedAssetCount)` 将摘要写入链上，`evaluate` 时直接读取。这是带信任假设的折中方案，Production 应迁移到自动索引器或 Merkle 证明。
 
 ---
 
@@ -402,7 +451,8 @@ function evaluate(address wallet)
 #### 设计约束
 
 - Uniswap V3 swap 历史无法通过纯合约调用直接获取。
-- 采用 **链下索引器聚合 + Merkle/存储证明 + 合约验证** 的混合模式。
+- **设计目标：** 链下索引器聚合 + Merkle/存储证明 + 合约验证的混合模式（P2 任务，尚未实现）。
+- **当前实现：** 受信 keeper 提交聚合摘要（方案 B），`UniswapScoreModule.evaluate(wallet)` 读取链上摘要数据。
 
 #### 存储证明接口（MVP 简化）
 
@@ -421,17 +471,10 @@ function evaluateWithProof(address wallet, SwapProof[] calldata proofs)
     returns (int256 score, uint256 confidence, bytes32 evidence);
 ```
 
-考虑到 Hackathon 时间限制，MVP 可能无法完整实现 receipt trie 验证。提供两种降级方案：
-
-| 方案 | 复杂度 | 信任假设 | 建议 |
-|------|--------|----------|------|
-| A：完整 receipt Merkle 证明 | 高 | 最小 | 赛后完善 |
-| B：受信 keeper 提交聚合摘要 | 中 | 需信任keeper | Hackathon 可接受 |
-| C：链下 evaluate，合约做签名验证 | 低 | 需信任签名者 | 最快落地 |
-
-**MVP 采用方案 B → C 的 Fallback：**
-- keeper/operator 预先将 swap 摘要（tx hash 列表、聚合盈亏、滑点）通过签名的方式提交。
-- `UniswapScoreModule.evaluate(wallet)` 读取最近一次 keeper 提交的数据，结合 `block.timestamp` 做衰减验证。
+**实现状态：**
+- 方案 A（Merkle/存储证明）：🔴 未实现，属于 P2 任务。
+- 方案 B（keeper 提交聚合摘要）：🟢 已实现。keeper 调用 `submitSwapSummary` 将摘要写入链上合约，evaluate 时直接读取。这是 Hackathon MVP 的折中方案，Production 必须配合同步推进自动索引器 + Merkle 证明。
+- 方案 C（链下 evaluate + 合约签名验证）：🔴 未采用。
 
 #### Keeper 接口
 

@@ -1,173 +1,169 @@
-# AgentRepScore — 任务拆解 (Phase 4)
+# AgentRepScore — Production Roadmap & Task Breakdown
 
-> 版本：v1.1
+> 版本：v2.0
 > 日期：2026-04-11
-> 基于技术规格 v2.1，覆盖 4 天 Hackathon 全流程
+> 状态：基于 Hackathon MVP 完成后的差距分析，定义从 Demo 到 Production 的完整任务清单
 
 ---
 
-## 原则
+## 1. 当前状态总览
 
-1. **文档先行**：每个 Phase 的文档先于代码完成，减少返工。
-2. **day-by-day  checkpoint**：每天结束时有可运行/可演示的 milestone。
-3. **风险前置**：不确定的外部依赖（ERC-8004 ABI、OnchainOS SDK、Keeper 数据）在 Day 1 上午解决。
-4. **测试驱动**：合约写完后 2 小时内必须有 Foundry 测试覆盖核心路径。
+| 维度 | 完成度 | 说明 |
+|------|--------|------|
+| 合约核心逻辑 | ~85% | 模块化架构、权重聚合、访问控制、治理转移、ReentrancyGuard 已补齐 |
+| 反作弊深度 | ~40% | 只有 fee-to-PnL 基础启发式，深层规则（循环流转、counterparty 集中度、女巫集群）缺失 |
+| 数据基础设施 | ~30% | Uniswap/BaseActivity 100% 依赖 keeper 手动提交；无自动索引器+Merkle 证明 |
+| Skill / 集成层 | ~50% | 有库函数但无 CLI/HTTP 路由；只有 testnet 支持；无主网部署 |
+| 运维 / DevOps | ~40% | CI 缺 TS 测试、lint、SAST；无自动部署流水线 |
+| 安全 / 治理 | ~60% | 有两步治理转移，但缺 Timelock/Pause/多签/审计 |
 
----
-
-## Day 1（4 月 12 日）— 搭建基础
-
-**目标：项目骨架 + AaveScoreModule + 测试网首次部署**
-
-### 上午：环境 & 外部依赖确认
-
-| # | 任务 | 负责人 | 验收标准 | 预估时间 |
-|---|------|--------|----------|----------|
-| 1.1 | 初始化仓库：pnpm + Hardhat + Foundry | Davirain | `forge build` 和 `npx hardhat compile` 均成功 | 1h |
-| 1.2 | 安装依赖：OpenZeppelin Contracts, viem, ethers@6 | Davirain | `package.json` 和 `foundry.toml` 正确配置 | 0.5h |
-| 1.3 | 确认 ERC-8004 合约调用路径 | Davirain | 用 viem 读取 X Layer 上 ReputationRegistry 的 `getVersion()`，验证 ABI 可用 | 0.5h |
-| 1.4 | 确认 OnchainOS SDK 包名与认证方式 | Davirain | 能成功调用一次 test API（如获取 xETH 价格） | 1h |
-| 1.5 | 确认 Aave V3 Pool `getUserAccountData` 在 X Layer 上可调用 | Davirain | 用脚本读取一个已知地址的 account data | 0.5h |
-
-### 下午：合约骨架 & Aave 模块
-
-| # | 任务 | 负责人 | 验收标准 | 预估时间 |
-|---|------|--------|----------|----------|
-| 1.6 | 编写 `IScoreModule.sol` 和 `ScoreConstants.sol` | Davirain | 编译通过 | 0.5h |
-| 1.7 | 编写 `AgentRepValidator.sol` 骨架（存储 + 模块管理 + evaluateAgent 空壳 + handleValidationRequest stub） | Davirain | 编译通过 | 1.5h |
-| 1.8 | 编写 `AaveScoreModule.sol` | Davirain | 评分逻辑符合技术规格第 4.2 节 | 1.5h |
-| 1.9 | 编写 Foundry 测试：`AaveScoreModule.t.sol` | Davirain | 覆盖健康因子、利用率、资产数的加分/减分支 | 1h |
-| 1.10 | 编写 Hardhat 部署脚本 `deploy-aave-module.ts` | Davirain | 成功部署到 X Layer Sepolia | 1h |
-
-### Day 1 Checkpoint
-
-- [ ] 仓库可编译（Hardhat + Foundry）
-- [ ] `AaveScoreModule` 已部署到 X Layer Sepolia 并有测试覆盖
-- [ ] 外部依赖（ERC-8004 ABI、Aave Pool、OnchainOS SDK）全部验证通过
+**总体完成度：~55%（Hackathon MVP 后可演示，但离 Production 还有显著差距）**
 
 ---
 
-## Day 2（4 月 13 日）— 核心集成
+## 2. 任务分级原则
 
-**目标：Uniswap + BaseActivity 模块 + Skill 核心命令 + 测试网完整部署**
-
-### 上午：剩余评分模块
-
-| # | 任务 | 负责人 | 验收标准 | 预估时间 |
-|---|------|--------|----------|----------|
-| 2.1 | 编写 `UniswapScoreModule.sol`（含 keeper 接口 + evaluate 逻辑） | Davirain | 编译通过；`submitSwapSummary` 有 `onlyKeeper` | 2h |
-| 2.2 | 编写 `BaseActivityModule.sol`（含 keeper 接口 + evaluate 逻辑） | Davirain | 编译通过；`submitActivitySummary` 有 `onlyKeeper` | 1.5h |
-| 2.3 | Foundry 测试：`UniswapScoreModule.t.sol` | Davirain | 覆盖刷量标记、数据过期、分数边界 | 1h |
-| 2.4 | Foundry 测试：`BaseActivityModule.t.sol` | Davirain | 覆盖不活跃惩罚、交互方阈值 | 0.5h |
-
-### 下午：主合约集成 + TypeScript Skill
-
-| # | 任务 | 负责人 | 验收标准 | 预估时间 |
-|---|------|--------|----------|----------|
-| 2.5 | 完成 `AgentRepValidator.sol` 的 `evaluateAgent`、`giveFeedback` 调用和 `handleValidationRequest` stub | Davirain | Foundry 集成测试：模拟 3 个模块，验证加权聚合和 ERC-8004 mock 调用 | 2h |
-| 2.6 | 部署脚本：一键部署全部合约并注册模块（权重 4000/3500/2500），并设置 keeper 地址 | Davirain | 运行脚本后，链上可查询 modules 列表 | 1h |
-| 2.6a | 编写最小 keeper mock 脚本（Hardhat/TS）：向 Uniswap/BaseActivity 模块提交预设摘要 | Davirain | 成功让 `rep:evaluate` 产生非零分数，支持 Day 2 Skill 测试 | 0.5h |
-| 2.7 | TypeScript Skill：`rep:register`（封装 ERC-8004 register + setAgentWallet） | Davirain | CLI 可调，返回 agentId 和 tx hash | 1h |
-| 2.8 | TypeScript Skill：`rep:evaluate`（调用 evaluateAgent 并等待回执） | Davirain | CLI 可调，返回总分和模块细分；Day 2 可先用 mock keeper 数据验证 | 1h |
-| 2.9 | TypeScript Skill：`rep:query`（读取 agentScores + 应用时间衰减） | Davirain | CLI 可调，返回 rawScore、decayedScore、trustTier | 1h |
-
-### Day 2 Checkpoint
-
-- [ ] 3 个模块 + 主合约全部部署到 X Layer Sepolia
-- [ ] `rep:register`、`rep:evaluate`、`rep:query` 三个命令 CLI 可运行
-- [ ] Foundry 集成测试覆盖 evaluateAgent 的加权聚合逻辑
+- **P0 — 阻塞上线**：没有这些，系统无法安全地处理真实用户或真实资金。
+- **P1 — 上线必备**：缺失会显著降低系统可信度、用户体验或被攻击风险。
+- **P2 — 短期优化**：上线后 1-2 个月内应补齐，提升竞争力。
+- **P3 — 中长期愿景**：根据产品市场反馈再决定是否投入（对应设计文档 Phase 2/3）。
 
 ---
 
-## Day 3（4 月 14 日）— 反作恶 + 打磨 + 端到端测试
+## 3. P0 任务（阻塞上线）
 
-**目标：完整的反作恶演示 + Skill 补全 + README + 测试网跑通全流程**
+### 3.1 数据基础设施：从手工 keeper 到自动化管道
 
-### 上午：反作恶与 Skill 补全
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P0-01 | 实现链下自动索引器服务 | 🔴 未开始 | 持续扫描 X Layer 上的 Uniswap Swap 事件、Aave Liquidation 事件、通用交易活动，生成结构化摘要 | 3-5 天 |
+| P0-02 | 索引器自动提交摘要到链上 | 🔴 未开始 | keeper 脚本需要变成常驻服务（cron/worker queue），自动调用 `submitSwapSummary` / `submitActivitySummary` / `submitWalletMeta` | 2-3 天 |
+| P0-03 | 增加提交重试、去重、幂等机制 | 🔴 未开始 | 防止网络波动导致重复提交或漏提交；每个摘要应带 nonce 或基于 block range 去重 | 1-2 天 |
+| P0-04 | Keeper 服务监控与告警 | 🔴 未开始 | 记录最后一次成功提交的 blockNumber/timestamp，异常时告警 | 1 天 |
 
-| # | 任务 | 负责人 | 验收标准 | 预估时间 |
-|---|------|--------|----------|----------|
-| 3.1 | 实现 keeper 脚本（TypeScript）：从 OKLink/OnchainOS 获取 swap/activity 摘要并提交链上 | Davirain | 能成功向已部署的 `UniswapScoreModule` 和 `BaseActivityModule` 提交一次摘要 | 2h |
-| 3.1a | （MVP 备注）evidence 的完整 JSON 链下生成，feedbackURI 留空字符串 | Davirain | evaluate 输出的 evidenceHash 与本地 JSON 的 keccak256 一致即可 | — |
-| 3.2 | 在 keeper 脚本中加入刷量检测启发式（手续费占盈亏比） | Davirain | 输出 flagged/unflagged | 1h |
-| 3.3 | TypeScript Skill：`rep:compare` | Davirain | 输入多个 agentId，输出排名表 | 1h |
-| 3.4 | TypeScript Skill：`rep:modules` | Davirain | 读取链上模块注册表并格式化 | 0.5h |
+### 3.2 Skill / 集成层：主网支持与可调用入口
 
-### 下午：端到端测试与文档
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P0-05 | 添加 X Layer 主网支持（chainId 196） | 🔴 未开始 | `src/config.ts`、`register.ts`、`evaluate.ts` 等文件需要支持主网 RPC 和合约地址切换 | 0.5-1 天 |
+| P0-06 | 暴露 CLI / HTTP API 入口 | 🔴 未开始 | SKILL.md 写了 `rep:register` 等命令，但代码中只有库函数。需要 CLI（如 `npx agent-rep-score evaluate <agentId>`）或 lightweight HTTP server | 1-2 天 |
+| P0-07 | 添加 OpenAPI / Swagger 文档 | 🔴 未开始 | 让第三方 Agent 平台可以零文档成本集成 | 0.5 天 |
 
-| # | 任务 | 负责人 | 验收标准 | 预估时间 |
-|---|------|--------|----------|----------|
-| 3.5 | 完整端到端流程测试网跑通：注册 agent → keeper 提交数据 → evaluate → query | Davirain | 每一步有交易哈希和链上可验证结果 | 2h |
-| 3.6 | 反作恶演示场景：构造一个刷量地址，keeper 标记为 washTrade，evaluate 后分数显著降低 | Davirain | 对比正常地址和刷量地址的评分结果 | 1.5h |
-| 3.7 | 编写 `README.md`（安装、配置环境变量、运行命令） | Davirain | 第三方可复制运行 | 1h |
-| 3.8 | 编写 `SKILL.md`（trigger、输入输出示例） | Davirain | 符合项目说明书第 8 节定义 | 0.5h |
+### 3.3 合约安全：紧急控制与权限硬化
 
-### Day 3 Checkpoint
-
-- [ ] 测试网上完成至少 2 个 agent 的注册-评估-查询全流程
-- [ ] 刷量检测有真实对比数据
-- [ ] README 和 SKILL.md 完成
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P0-08 | 为主合约和各模块添加 `Pausable` | 🔴 未开始 | 发现漏洞时可紧急暂停 `evaluateAgent`、`submitSwapSummary` 等关键函数 | 0.5-1 天 |
+| P0-09 | 将 governance 从单个 EOA 迁移到 Multisig | 🔴 未开始 | 生产环境必须要求 2-of-3 或 3-of-5 多签才能执行模块注册、权重变更、治理转移 | 0.5 天 |
+| P0-10 | 引入 Timelock 延迟关键操作 | 🔴 未开始 | `registerModule`、`updateWeight`、`setModuleActive` 等操作延迟 24-48 小时生效，给用户留反应时间 | 1 天 |
 
 ---
 
-## Day 4（4 月 15 日）— 发布
+## 4. P1 任务（上线必备）
 
-**目标：主网部署（可选）+ Demo 视频 + 提交**
+### 4.1 反作弊机制补齐
 
-### 上午：主网部署与最终打磨
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P1-01 | 实现 A→B→A 循环流转检测（< 10 区块） | 🔴 未开始 | 在 keeper 索引器中检测同一钱包在短时间内进行闭环 swap，标记 `washTradeFlag` | 1-2 天 |
+| P1-02 | 实现 Counterparty 集中度检测 | 🔴 未开始 | 若 >70% swap 活动涉及相同 2 个地址，触发女巫惩罚 | 1-2 天 |
+| P1-03 | 实现资金源集群检测 | 🔴 未开始 | 检测多个 Agent 钱包是否来自同一 faucet/同一笔资金的子地址分发 | 2-3 天 |
+| P1-04 | 在 `UniswapScoreModule.evaluate` 中利用链上实时状态做二次校验 | 🟡 部分 | 当前 `feeToPnlRatioBps` 已使用；可进一步读取链上 Uniswap Pool 的 `slot0` 做价格合理性校验 | 1-2 天 |
 
-| # | 任务 | 负责人 | 验收标准 | 预估时间 |
-|---|------|--------|----------|----------|
-| 4.1 | 评估主网部署风险：gas 费用、部署顺序、验证源码 | Davirain | 决策：主网部署 or 仅展示测试网 | 0.5h |
-| 4.2 | 如决策通过，执行主网部署并验证合约 | Davirain | OKLink 上可见已验证源码 | 1.5h |
-| 4.3 | 整理演示脚本（注册 → 提交数据 → evaluate → query → compare） | Davirain | 所有命令预先测试好，录屏无卡顿 | 1h |
+### 4.2 运维与 DevOps
 
-### 下午：Demo 视频与提交
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P1-05 | CI 添加 vitest TypeScript 测试步骤 | 🟢 已部分 | `package.json` 已支持 `vitest run`，但 `.github/workflows/test.yml` 还没加这一步 | 0.5 天 |
+| P1-06 | CI 添加 solhint / Slither SAST 检查 | 🔴 未开始 | 每次 PR 自动运行合约静态分析，拦截高危漏洞模式 | 1 天 |
+| P1-07 | 建立测试网 + 主网自动部署流水线 | 🔴 未开始 | 通过 GitHub Actions + foundry `forge script` 实现 tag push 自动部署到测试网，manual trigger 部署主网 | 1-2 天 |
+| P1-08 | 合约部署后自动验证源码 | 🔴 未开始 | 集成 OKLink / Etherscan verify API | 0.5 天 |
 
-| # | 任务 | 负责人 | 验收标准 | 预估时间 |
-|---|------|--------|----------|----------|
-| 4.4 | 录制 2 分钟 Demo 视频 | Davirain | 涵盖：模块化架构说明、Aave 评分、keeper 刷量检测、ERC-8004 查询 | 1h |
-| 4.5 | 剪辑与字幕（突出 Skills Arena 和 Uniswap 集成亮点） | Davirain | MP4，<100MB，2 分钟内 | 1h |
-| 4.6 | 填写 Hackathon 提交表单 | Davirain | Google Form 在 23:59 UTC 前提交成功 | 0.5h |
-| 4.7 | 发布 Twitter / Moltbook | Davirain | 链接可访问 | 0.5h |
+### 4.3 可观测性
 
-### Day 4 Checkpoint
-
-- [ ] Demo 视频已上传
-- [ ] Hackathon 表单已提交
-- [ ] 公开页面（GitHub + Moltbook）可读
-
----
-
-## 任务总览图
-
-```
-Day 1: 环境 + AaveModule + 测试网部署
-   ↓
-Day 2: Uniswap + BaseActivity + 主合约集成 + Skill 3命令
-   ↓
-Day 3: keeper脚本 + 反作恶演示 + README + 端到端测试网跑通
-   ↓
-Day 4: 主网部署(可选) + Demo视频 + 提交
-```
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P1-09 | 添加结构化 logging | 🔴 未开始 | keeper 服务、Skill API、合约事件都应输出结构化日志（JSON），便于检索 | 1 天 |
+| P1-10 | 建立链上指标看板 | 🔴 未开始 | 监控 evaluateAgent 调用频率、平均 gas、各模块分数分布、washTradeFlag 触发率 | 1-2 天 |
 
 ---
 
-## 风险与应对
+## 5. P2 任务（短期优化）
 
-| 风险 | 影响 | 应对 |
-|------|------|------|
-| X Layer Sepolia 不稳定 | 高 | Day 1 上午立即测试 RPC；备用本地 Anvil + fork |
-| keeper 数据来源延迟 | 中 | Day 3 前如无法获取真实数据，用脚本生成可控的 mock 数据上链 |
-| OnchainOS SDK 不可用 | 中 | fallback 到直接 viem + OKLink API 读取链上数据 |
-| 合约部署 gas 不足 | 低 | 提前准备 XLAYER 测试币/主网代币 |
-| Demo 视频文件过大 | 低 | 使用命令行录屏（asciinema/terminalizer）+ 后期倍速剪辑 |
+### 5.1 合约架构升级
+
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P2-01 | 引入 UUPS Proxy 可升级架构 | 🔴 未开始 | 当前合约不可升级，任何逻辑 bug 都需要重新部署并迁移模块注册。使用 OpenZeppelin UUPS 可降低长期运维成本 | 1-2 天 |
+| P2-02 | 将 `AgentScore` 模块化存储改为 Merkle 化/压缩存储 | 🔴 未开始 | 降低链上存储成本，支持更多历史记录 | 2-3 天 |
+| P2-03 | 实现链上历史证据 Merkle 验证 | 🟡 部分 | 技术规格中写了方案 A，实际 MVP 用了 keeper 摘要模式。如果要真正去信任，需要实现 receipt/log Merkle 证明验证 | 3-5 天 |
+
+### 5.2 评分模型优化
+
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P2-04 | 引入动态权重调整（基于治理投票或链上指标） | 🔴 未开始 | 例如某模块长期 confidence 为 0，可自动降低其权重 | 2-3 天 |
+| P2-05 | 增加跨模块关联行为分析 | 🔴 未开始 | 检测同一钱包在 Uniswap 和 Aave 上的协同操纵（如闪电贷 + 自交易） | 2-3 天 |
+| P2-06 | 增加评分模型的链下仿真沙盒 | 🔴 未开始 | 在真正写入 Reputation Registry 前，允许运营方在链下模拟不同权重配置的效果 | 2 天 |
 
 ---
 
-## 版本历史
+## 6. P3 任务（中长期愿景 / Phase 2+）
+
+| # | 任务 | 状态 | 说明 | 预估工作量 |
+|---|------|------|------|------------|
+| P3-01 | 新评分模块：StargateModule（跨链桥） | 🔴 未开始 | 评估 Agent 的跨链操作成功率、滑点损失 | 3-5 天 |
+| P3-02 | 新评分模块：YieldVaultModule（收益策略） | 🔴 未开始 | 夏普比率、最大回撤、年化收益 | 3-5 天 |
+| P3-03 | 新评分模块：GHOStableModule（稳定币风险管理） | 🔴 未开始 | 稳定币持仓比例、脱锚风险应对 | 2-3 天 |
+| P3-04 | 跨链声誉聚合 | 🔴 未开始 | 聚合同一 Agent 在 Ethereum / Base / Arbitrum / X Layer 上的 ERC-8004 分数 | 5-7 天 |
+| P3-05 | Agent-to-Agent (A2A) 社会信任网络 | 🔴 未开始 | Agent 之间互相评价，构建递归信任图 | 5-7 天 |
+| P3-06 | MEV 行为分析模块 | 🔴 未开始 | 检测 sandwich attack、frontrunning 等恶意 MEV | 5-7 天 |
+| P3-07 | zkML 验证链下评分模型 | 🔴 未开始 | 用零知识机器学习证明keeper/索引器的评分计算是正确的 | 数周 |
+
+---
+
+## 7. 近期执行建议（Next 30 Days）
+
+如果你是唯一开发者，建议按以下顺序推进：
+
+### Week 1：安全与主网
+- P0-08 Pausable
+- P0-09 Multisig
+- P0-10 Timelock
+- P0-05 主网支持
+
+### Week 2：自动化 keeper
+- P0-01 自动索引器（先只做 Uniswap Swap 事件）
+- P0-02 自动提交到链上
+- P0-03 重试/去重
+
+### Week 3：反作弊 + CI
+- P1-01 循环流转检测
+- P1-02 Counterparty 集中度
+- P1-05 CI 添加 vitest
+- P1-06 CI 添加 Slither
+
+### Week 4：入口与观测
+- P0-06 CLI / HTTP API
+- P0-07 OpenAPI 文档
+- P1-09 结构化 logging
+- P1-10 指标看板
+
+---
+
+## 8. 任务状态图例
+
+| 图例 | 含义 |
+|------|------|
+| 🟢 已完成 | 代码已合并，测试通过 |
+| 🟡 部分完成 | 有基础实现，但还不够 Production 级别 |
+| 🔴 未开始 | 完全空白，需要新开发 |
+
+---
+
+## 9. 版本历史
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
-| v1.0 | 2026-04-11 | 初版，按 4 天 Hackathon 拆解任务 |
-| v1.1 | 2026-04-11 | 增加 ScoreConstants、handleValidationRequest stub、keeper mock 脚本、feedbackURI 备注 |
+| v1.0 | 2026-04-11 | 4 天 Hackathon 任务拆解 |
+| v2.0 | 2026-04-11 | 重写为 Production Roadmap，按 P0/P1/P2/P3 分级，覆盖差距分析中的所有任务 |
