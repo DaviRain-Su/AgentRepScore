@@ -16,6 +16,7 @@
     "rep:query": "rep query",
     "rep:compare": "rep compare",
     "rep:modules": "rep modules",
+    "keeper:health": "npx tsx scripts/keeper-health.ts",
     "server": "node --import tsx src/server.ts"
   },
   "keywords": [],

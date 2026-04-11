@@ -149,7 +149,7 @@
         "TypeScript compiles without errors"
       ],
       "priority": 11,
-      "passes": false
+      "passes": true
     }
   ]
 }

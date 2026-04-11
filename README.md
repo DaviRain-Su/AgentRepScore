@@ -96,6 +96,21 @@ npx tsx scripts/keeper-daemon.ts
 
 Daemon 启动后会立即执行一轮，随后按 `DAEMON_INTERVAL_MS` 定时循环。日志直接输出到 stdout，可被重定向到文件或日志收集系统。
 
+### 健康检查
+
+Daemon 会在每轮成功后写入 `keeper-health.json`（路径可通过 `KEEPER_HEALTH_PATH` 覆盖），记录 `lastSuccessBlock`、`lastSuccessTimestamp` 和 `consecutiveFailures`。当连续 3 轮失败时会发出 ERROR 级别告警日志。
+
+快速检查 Daemon 健康状态：
+
+```bash
+pnpm keeper:health
+# 或
+npx tsx scripts/keeper-health.ts
+```
+
+- 退出码 `0` = 健康
+- 退出码 `1` = 不健康（连续失败 ≥3 次或从未成功）
+
 ## Skill 命令示例
 
 ### `rep:register`

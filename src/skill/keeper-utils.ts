@@ -119,3 +119,74 @@ export async function submitWithRetry<T>(
   }
   throw lastError;
 }
+
+// ------------------------------------------------------------------
+// Keeper health tracking
+// ------------------------------------------------------------------
+
+export interface KeeperHealth {
+  lastSuccessBlock: string;
+  lastSuccessTimestamp: string;
+  lastRunTimestamp: string;
+  consecutiveFailures: number;
+}
+
+const DEFAULT_HEALTH: KeeperHealth = {
+  lastSuccessBlock: "0",
+  lastSuccessTimestamp: "",
+  lastRunTimestamp: "",
+  consecutiveFailures: 0,
+};
+
+export function getHealthPath(): string {
+  return process.env.KEEPER_HEALTH_PATH || "keeper-health.json";
+}
+
+export function loadKeeperHealth(): KeeperHealth {
+  const path = getHealthPath();
+  if (!existsSync(path)) {
+    return structuredClone(DEFAULT_HEALTH);
+  }
+  try {
+    const raw = readFileSync(path, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<KeeperHealth>;
+    return { ...structuredClone(DEFAULT_HEALTH), ...parsed };
+  } catch {
+    return structuredClone(DEFAULT_HEALTH);
+  }
+}
+
+export function saveKeeperHealth(health: KeeperHealth): void {
+  const path = getHealthPath();
+  writeFileSync(path, JSON.stringify(health, null, 2));
+}
+
+export function getMaxSubmittedBlock(state: KeeperState): bigint {
+  let maxBlock = 0n;
+  for (const module of Object.values(state.submissions)) {
+    for (const walletState of Object.values(module)) {
+      const block = BigInt(walletState.lastSubmittedBlock || "0");
+      if (block > maxBlock) maxBlock = block;
+    }
+  }
+  return maxBlock;
+}
+
+export function updateKeeperHealth(success: boolean): KeeperHealth {
+  const health = loadKeeperHealth();
+  const now = new Date().toISOString();
+  health.lastRunTimestamp = now;
+
+  if (success) {
+    const state = loadKeeperState();
+    const maxBlock = getMaxSubmittedBlock(state);
+    health.lastSuccessBlock = maxBlock.toString();
+    health.lastSuccessTimestamp = now;
+    health.consecutiveFailures = 0;
+  } else {
+    health.consecutiveFailures += 1;
+  }
+
+  saveKeeperHealth(health);
+  return health;
+}

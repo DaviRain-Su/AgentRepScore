@@ -21,6 +21,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as dotenv from "dotenv";
 import { logger } from "../src/skill/logger.ts";
+import { updateKeeperHealth } from "../src/skill/keeper-utils.ts";
 
 dotenv.config();
 
@@ -62,7 +63,7 @@ export function buildKeeperCommands(
 export async function runCommand(cmd: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const [file, ...args] = cmd;
-    console.log(`[daemon] Running: ${cmd.join(" ")}`);
+    logger.info(`[daemon] Running: ${cmd.join(" ")}`);
     const child = spawn(file, args, {
       stdio: "inherit",
       shell: false,
@@ -70,7 +71,7 @@ export async function runCommand(cmd: string[]): Promise<void> {
     });
 
     child.on("error", (err) => {
-      console.error(`[daemon] Failed to start ${cmd.join(" ")}:`, err.message);
+      logger.error(`[daemon] Failed to start ${cmd.join(" ")}`, { error: err.message });
       reject(err);
     });
 
@@ -78,52 +79,56 @@ export async function runCommand(cmd: string[]): Promise<void> {
       if (code === 0) {
         resolve();
       } else {
-        console.error(`[daemon] Command exited with code ${code}: ${cmd.join(" ")}`);
+        logger.error(`[daemon] Command exited with code ${code}: ${cmd.join(" ")}`);
         reject(new Error(`Command exited with code ${code}`));
       }
     });
   });
 }
 
-export async function runRound(wallets: Address[]): Promise<void> {
+export async function runRound(wallets: Address[]): Promise<boolean> {
+  let allSuccess = true;
   for (const wallet of wallets) {
-    console.log(`\n[daemon] Processing wallet ${wallet} at ${new Date().toISOString()}`);
+    logger.info(`[daemon] Processing wallet ${wallet} at ${new Date().toISOString()}`, { wallet });
     const commands = buildKeeperCommands(wallet);
     for (const cmd of commands) {
       try {
         await runCommand(cmd);
       } catch (err) {
-        console.error(`[daemon] Keeper failed for ${wallet}:`, (err as Error).message);
+        logger.error(`[daemon] Keeper failed for ${wallet}`, { wallet, err });
+        allSuccess = false;
       }
     }
   }
+  return allSuccess;
 }
 
 async function main() {
   const wallets = parseWallets(process.env.WALLETS || "");
   if (wallets.length === 0) {
-    console.error("Error: No wallets configured. Set WALLETS env var.");
+    logger.error("Error: No wallets configured. Set WALLETS env var.");
     process.exit(1);
   }
 
   const intervalMs = Number(process.env.DAEMON_INTERVAL_MS || "300000");
   if (Number.isNaN(intervalMs) || intervalMs < 1000) {
-    console.error("Error: DAEMON_INTERVAL_MS must be at least 1000");
+    logger.error("Error: DAEMON_INTERVAL_MS must be at least 1000");
     process.exit(1);
   }
 
-  console.log(`[daemon] Starting keeper daemon`);
-  console.log(`[daemon] Wallets: ${wallets.join(", ")}`);
-  console.log(`[daemon] Interval: ${intervalMs}ms (${intervalMs / 60000} minutes)`);
+  logger.info("[daemon] Starting keeper daemon", { wallets, intervalMs, intervalMinutes: intervalMs / 60000 });
 
   // Run immediately on start
-  await runRound(wallets);
+  let roundSuccess = await runRound(wallets);
+  let health = updateKeeperHealth(roundSuccess);
 
   // Then schedule
-  setInterval(() => {
-    runRound(wallets).catch((err) => {
-      logger.error("[daemon] Uncaught round error", { err });
-    });
+  setInterval(async () => {
+    roundSuccess = await runRound(wallets);
+    health = updateKeeperHealth(roundSuccess);
+    if (health.consecutiveFailures >= 3) {
+      logger.error("[daemon] ALERT: Keeper submissions have failed for 3 consecutive rounds. Immediate operator attention required.", { consecutiveFailures: health.consecutiveFailures });
+    }
   }, intervalMs);
 
   // Keep process alive
