@@ -9,6 +9,20 @@
 Started: 2026年 4月11日 星期六 23时28分07秒 CST
 ---
 
+## 2026-04-12 01:50 CST - US-007
+Tool: pi
+- Added Slither SAST analysis to GitHub Actions CI by extending `.github/workflows/test.yml` with a new `slither` job.
+- The job runs in parallel with the existing `check` job: checks out code with recursive submodules, installs Foundry, and runs `crytic/slither-action@v0.4.0`.
+- Configured `fail-on: high` so the workflow fails if Slither detects high-severity findings.
+- All quality checks pass: `pnpm test:all` (vitest 70 tests, forge 84 tests) and manual inspection of workflow YAML syntax.
+- Files changed: `.github/workflows/test.yml`, `prd.json`
+- **Learnings for future iterations:**
+  - `crytic/slither-action` auto-detects Foundry projects but requires the `foundry-rs/foundry-toolchain` to be installed in the same job beforehand.
+  - Keep CI steps in separate jobs (`check` vs `slither`) for parallelism and clearer failure attribution.
+  - Slither action inputs like `fail-on` accept `low`, `medium`, `high`, or `none`; for this project `high` is the appropriate threshold to avoid noise from lower-severity informational findings.
+---
+
+
 ## 2026-04-12 01:42 CST - US-005
 Tool: pi
 - Implemented wash-trade (A→B→A) detection in `scripts/indexer-uniswap.ts` via new `detectWashTrade(events)` utility.
