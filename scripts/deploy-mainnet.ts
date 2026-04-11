@@ -81,6 +81,7 @@ async function main() {
   ];
 
   for (const mod of weights) {
+    // @ts-expect-error hardhat type inference limitation
     const tx = await validator.registerModule(mod.address, mod.weight);
     await tx.wait();
     console.log(`Registered ${mod.name} with weight ${mod.weight}`);

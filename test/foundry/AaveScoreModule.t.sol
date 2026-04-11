@@ -10,12 +10,15 @@ contract AaveScoreModuleTest is Test {
     MockAavePool mockPool;
     AaveScoreModule aaveModule;
 
+    address governance = address(this);
+    address keeper = address(0xbeef);
     address wallet = address(0x1234);
 
     function setUp() public {
         vm.warp(1_700_000_000);
         mockPool = new MockAavePool();
-        aaveModule = new AaveScoreModule(address(mockPool));
+        aaveModule = new AaveScoreModule(address(mockPool), governance);
+        aaveModule.setKeeper(keeper, true);
     }
 
     function _setData(
@@ -85,5 +88,31 @@ contract AaveScoreModuleTest is Test {
         // Well above MIN_SCORE since liquidationCount defaults to 0
         (int256 score,,) = aaveModule.evaluate(wallet);
         assertGe(score, ScoreConstants.MIN_SCORE);
+    }
+
+    function test_LiquidationCountPenalty() public {
+        _setData(1000e8, 500e8, 2e18);
+        vm.prank(keeper);
+        aaveModule.submitWalletMeta(wallet, 2, 1); // 2 liquidations, 1 asset
+        (int256 score,,) = aaveModule.evaluate(wallet);
+        // 5000 + 2500 + 1000 - (2 * 1500) = 5500
+        assertEq(score, ScoreConstants.BASE_AAVE_SCORE + 2500 + 1000 - 3000);
+    }
+
+    function test_AssetCountBonus() public {
+        _setData(1000e8, 500e8, 2e18);
+        vm.prank(keeper);
+        aaveModule.submitWalletMeta(wallet, 0, 3); // 0 liquidations, 3 assets
+        (int256 score,,) = aaveModule.evaluate(wallet);
+        // 5000 + 2500 + 1000 + 1000 = 9500
+        assertEq(score, ScoreConstants.BASE_AAVE_SCORE + 2500 + 1000 + 1000);
+    }
+
+    function test_GovernanceTransfer() public {
+        address newGov = address(0xabcd);
+        aaveModule.initiateGovernanceTransfer(newGov);
+        vm.prank(newGov);
+        aaveModule.acceptGovernanceTransfer();
+        assertEq(aaveModule.governance(), newGov);
     }
 }

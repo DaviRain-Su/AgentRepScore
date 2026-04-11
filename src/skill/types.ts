@@ -1,6 +1,7 @@
 export interface RegisterInput {
   wallet: `0x${string}`;
-  capabilities: string[];
+  /** @deprecated not used in current implementation */
+  capabilities?: string[];
   uri: string;
 }
 
@@ -33,6 +34,7 @@ export interface ScoreOutput {
   decayedScore: number;
   trustTier: "untrusted" | "basic" | "verified" | "elite";
   timestamp: number;
+  evidenceHash?: `0x${string}`;
   moduleBreakdown: {
     name: string;
     score: number;

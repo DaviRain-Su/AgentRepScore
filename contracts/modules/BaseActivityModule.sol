@@ -6,9 +6,11 @@ import "../ScoreConstants.sol";
 
 contract BaseActivityModule is IScoreModule {
     error UnauthorizedKeeper(address caller);
+    error UnauthorizedGovernance(address caller);
 
     mapping(address => bool) public keepers;
     address public governance;
+    address public pendingGovernance;
 
     struct ActivitySummary {
         uint256 txCount;
@@ -21,13 +23,22 @@ contract BaseActivityModule is IScoreModule {
 
     mapping(address => ActivitySummary) public latestActivitySummary;
 
+    event ActivitySummarySubmitted(
+        address indexed wallet,
+        uint256 txCount,
+        uint256 uniqueCounterparties,
+        bytes32 evidenceHash
+    );
+    event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
+    event GovernanceTransferAccepted(address indexed newGovernance);
+
     modifier onlyKeeper() {
         if (!keepers[msg.sender]) revert UnauthorizedKeeper(msg.sender);
         _;
     }
 
     modifier onlyGovernance() {
-        require(msg.sender == governance, "UnauthorizedGovernance");
+        if (msg.sender != governance) revert UnauthorizedGovernance(msg.sender);
         _;
     }
 
@@ -39,8 +50,21 @@ contract BaseActivityModule is IScoreModule {
         keepers[keeper] = allowed;
     }
 
+    function initiateGovernanceTransfer(address newGovernance) external onlyGovernance {
+        pendingGovernance = newGovernance;
+        emit GovernanceTransferInitiated(governance, newGovernance);
+    }
+
+    function acceptGovernanceTransfer() external {
+        if (msg.sender != pendingGovernance) revert UnauthorizedGovernance(msg.sender);
+        governance = pendingGovernance;
+        pendingGovernance = address(0);
+        emit GovernanceTransferAccepted(governance);
+    }
+
     function submitActivitySummary(address wallet, ActivitySummary calldata summary) external onlyKeeper {
         latestActivitySummary[wallet] = summary;
+        emit ActivitySummarySubmitted(wallet, summary.txCount, summary.uniqueCounterparties, summary.evidenceHash);
     }
 
     function name() external pure override returns (string memory) {

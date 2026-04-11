@@ -4,6 +4,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 async function main() {
+  // @ts-expect-error hardhat toolbox type extension not picked up
   const { viem } = hre;
   const walletClients = await viem.getWalletClients();
   const deployer = walletClients[0];

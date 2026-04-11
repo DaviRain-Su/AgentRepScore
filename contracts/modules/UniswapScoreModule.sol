@@ -6,9 +6,11 @@ import "../ScoreConstants.sol";
 
 contract UniswapScoreModule is IScoreModule {
     error UnauthorizedKeeper(address caller);
+    error UnauthorizedGovernance(address caller);
 
     mapping(address => bool) public keepers;
     address public governance;
+    address public pendingGovernance;
 
     struct SwapSummary {
         uint256 swapCount;
@@ -23,13 +25,24 @@ contract UniswapScoreModule is IScoreModule {
 
     mapping(address => SwapSummary) public latestSwapSummary;
 
+    event SwapSummarySubmitted(
+        address indexed wallet,
+        uint256 swapCount,
+        uint256 volumeUSD,
+        int256 netPnL,
+        bool washTradeFlag,
+        bytes32 evidenceHash
+    );
+    event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
+    event GovernanceTransferAccepted(address indexed newGovernance);
+
     modifier onlyKeeper() {
         if (!keepers[msg.sender]) revert UnauthorizedKeeper(msg.sender);
         _;
     }
 
     modifier onlyGovernance() {
-        require(msg.sender == governance, "UnauthorizedGovernance");
+        if (msg.sender != governance) revert UnauthorizedGovernance(msg.sender);
         _;
     }
 
@@ -41,8 +54,21 @@ contract UniswapScoreModule is IScoreModule {
         keepers[keeper] = allowed;
     }
 
+    function initiateGovernanceTransfer(address newGovernance) external onlyGovernance {
+        pendingGovernance = newGovernance;
+        emit GovernanceTransferInitiated(governance, newGovernance);
+    }
+
+    function acceptGovernanceTransfer() external {
+        if (msg.sender != pendingGovernance) revert UnauthorizedGovernance(msg.sender);
+        governance = pendingGovernance;
+        pendingGovernance = address(0);
+        emit GovernanceTransferAccepted(governance);
+    }
+
     function submitSwapSummary(address wallet, SwapSummary calldata summary) external onlyKeeper {
         latestSwapSummary[wallet] = summary;
+        emit SwapSummarySubmitted(wallet, summary.swapCount, summary.volumeUSD, summary.netPnL, summary.washTradeFlag, summary.evidenceHash);
     }
 
     function name() external pure override returns (string memory) {
@@ -103,6 +129,14 @@ contract UniswapScoreModule is IScoreModule {
 
         if (s.washTradeFlag) {
             score -= 3000;
+        }
+
+        // Anti-gaming: fee-to-PnL ratio heuristic
+        // If fees are disproportionately high relative to realized PnL, suggest wash-trading / MEV botting
+        if (s.netPnL > 0 && s.feeToPnlRatioBps > 5000) {
+            score -= 1500;
+        } else if (s.netPnL <= 0 && s.feeToPnlRatioBps > 2000) {
+            score -= 1500;
         }
 
         if (score > ScoreConstants.MAX_SCORE) score = ScoreConstants.MAX_SCORE;

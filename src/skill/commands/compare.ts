@@ -2,9 +2,9 @@ import { query } from "./query.ts";
 import { CompareInput } from "../types.ts";
 
 export async function compare(input: CompareInput): Promise<
-  { agentId: string; decayedScore: number; trustTier: "untrusted" | "basic" | "verified" | "elite" }[]
+  { agentId: string; decayedScore: number; trustTier: "untrusted" | "basic" | "verified" | "elite"; error?: string }[]
 > {
-  const results = await Promise.all(
+  const settled = await Promise.allSettled(
     input.agentIds.map(async (agentId) => {
       const score = await query({ agentId });
       return {
@@ -14,6 +14,21 @@ export async function compare(input: CompareInput): Promise<
       };
     })
   );
+
+  const results: { agentId: string; decayedScore: number; trustTier: "untrusted" | "basic" | "verified" | "elite"; error?: string }[] = [];
+  for (let i = 0; i < settled.length; i++) {
+    const s = settled[i];
+    if (s.status === "fulfilled") {
+      results.push(s.value);
+    } else {
+      results.push({
+        agentId: input.agentIds[i],
+        decayedScore: -Infinity,
+        trustTier: "untrusted",
+        error: s.reason instanceof Error ? s.reason.message : String(s.reason),
+      });
+    }
+  }
 
   return results.sort((a, b) => b.decayedScore - a.decayedScore);
 }

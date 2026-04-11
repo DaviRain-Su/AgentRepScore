@@ -29,6 +29,7 @@ contract AgentRepValidator {
         int256 score;
         uint256 timestamp;
         bytes32 evidenceHash;
+        uint256 confidence;
     }
 
     mapping(uint256 => AgentScore) public agentScores;
@@ -37,13 +38,39 @@ contract AgentRepValidator {
     uint256 public evaluationCooldown = ScoreConstants.COOLDOWN_DEFAULT;
     mapping(uint256 => uint256) public lastEvaluationTime;
 
+    // Reentrancy guard (simplified, no OZ dependency)
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _status = _NOT_ENTERED;
+
+    modifier nonReentrant() {
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
+    }
+
+    // Evaluator role (governance or keeper)
+    mapping(address => bool) public evaluators;
+
+    modifier onlyEvaluator() {
+        if (msg.sender != governance && !evaluators[msg.sender]) revert UnauthorizedEvaluator(msg.sender);
+        _;
+    }
+
+    // Governance transfer (two-step)
+    address public pendingGovernance;
+
     // Custom errors
     error CooldownNotElapsed(uint256 remaining);
     error AgentWalletNotSet(uint256 agentId);
     error ModuleIndexOutOfBounds(uint256 index);
     error UnauthorizedGovernance(address caller);
+    error UnauthorizedEvaluator(address caller);
     error TotalWeightExceeded(uint256 totalWeight);
     error ValidationAlreadyHandled(bytes32 requestHash);
+    error InvalidValidationRegistry(address registry);
+    error ValidationRequestNotFound(bytes32 requestHash);
 
     // Events
     event ModuleRegistered(address indexed module, uint256 weight);
@@ -61,6 +88,9 @@ contract AgentRepValidator {
         int256 score,
         bytes32 evidenceHash
     );
+    event EvaluatorSet(address indexed evaluator, bool allowed);
+    event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
+    event GovernanceTransferAccepted(address indexed newGovernance);
 
     modifier onlyGovernance() {
         if (msg.sender != governance) revert UnauthorizedGovernance(msg.sender);
@@ -77,15 +107,36 @@ contract AgentRepValidator {
         reputationRegistry = reputationRegistry_;
         validationRegistry = validationRegistry_;
         governance = governance_;
+        evaluators[governance_] = true;
     }
 
-    function registerModule(IScoreModule module, uint256 weight) external onlyGovernance {
-        uint256 totalWeight = 0;
+    function setEvaluator(address evaluator, bool allowed) external onlyGovernance {
+        evaluators[evaluator] = allowed;
+        emit EvaluatorSet(evaluator, allowed);
+    }
+
+    function initiateGovernanceTransfer(address newGovernance) external onlyGovernance {
+        pendingGovernance = newGovernance;
+        emit GovernanceTransferInitiated(governance, newGovernance);
+    }
+
+    function acceptGovernanceTransfer() external {
+        if (msg.sender != pendingGovernance) revert UnauthorizedGovernance(msg.sender);
+        governance = pendingGovernance;
+        pendingGovernance = address(0);
+        emit GovernanceTransferAccepted(governance);
+    }
+
+    function _totalActiveWeight() internal view returns (uint256 totalWeight) {
         for (uint256 i = 0; i < modules.length; i++) {
             if (modules[i].active) {
                 totalWeight += modules[i].weight;
             }
         }
+    }
+
+    function registerModule(IScoreModule module, uint256 weight) external onlyGovernance {
+        uint256 totalWeight = _totalActiveWeight();
         if (totalWeight + weight > 10000) revert TotalWeightExceeded(totalWeight + weight);
         modules.push(ModuleConfig({module: module, weight: weight, active: true}));
         emit ModuleRegistered(address(module), weight);
@@ -94,12 +145,18 @@ contract AgentRepValidator {
     function updateWeight(uint256 moduleIndex, uint256 newWeight) external onlyGovernance {
         if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
         modules[moduleIndex].weight = newWeight;
+        uint256 totalWeight = _totalActiveWeight();
+        if (totalWeight > 10000) revert TotalWeightExceeded(totalWeight);
         emit ModuleUpdated(moduleIndex, newWeight, modules[moduleIndex].active);
     }
 
     function setModuleActive(uint256 moduleIndex, bool active) external onlyGovernance {
         if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
         modules[moduleIndex].active = active;
+        if (active) {
+            uint256 totalWeight = _totalActiveWeight();
+            if (totalWeight > 10000) revert TotalWeightExceeded(totalWeight);
+        }
         emit ModuleUpdated(moduleIndex, modules[moduleIndex].weight, active);
     }
 
@@ -111,14 +168,22 @@ contract AgentRepValidator {
         return modules.length;
     }
 
-    function handleValidationRequest(bytes32 requestHash, uint256 agentId) external {
+    function handleValidationRequest(bytes32 requestHash, uint256 agentId) external onlyEvaluator nonReentrant {
         if (validationHandled[requestHash]) revert ValidationAlreadyHandled(requestHash);
+        if (validationRegistry != address(0)) {
+            bool exists = IValidationRegistry(validationRegistry).validationRequestExists(requestHash);
+            if (!exists) revert ValidationRequestNotFound(requestHash);
+        }
         validationHandled[requestHash] = true;
-        (int256 score, bytes32 evidenceHash) = evaluateAgent(agentId);
+        (int256 score, bytes32 evidenceHash) = _evaluateAgent(agentId);
         emit ValidationResponded(requestHash, agentId, score, evidenceHash);
     }
 
-    function evaluateAgent(uint256 agentId) public returns (int256 score, bytes32 evidenceHash) {
+    function evaluateAgent(uint256 agentId) public onlyEvaluator nonReentrant returns (int256 score, bytes32 evidenceHash) {
+        return _evaluateAgent(agentId);
+    }
+
+    function _evaluateAgent(uint256 agentId) internal returns (int256 score, bytes32 evidenceHash) {
         if (block.timestamp < lastEvaluationTime[agentId] + evaluationCooldown) {
             revert CooldownNotElapsed(lastEvaluationTime[agentId] + evaluationCooldown - block.timestamp);
         }
@@ -144,7 +209,8 @@ contract AgentRepValidator {
             moduleScores[agentId][i] = AgentScore({
                 score: modScore,
                 timestamp: block.timestamp,
-                evidenceHash: evidence
+                evidenceHash: evidence,
+                confidence: confidence
             });
             evidenceHashes[i] = evidence;
         }
@@ -162,7 +228,8 @@ contract AgentRepValidator {
         agentScores[agentId] = AgentScore({
             score: totalScore,
             timestamp: block.timestamp,
-            evidenceHash: evidenceHash
+            evidenceHash: evidenceHash,
+            confidence: totalWeight > 0 ? 100 : 0
         });
         lastEvaluationTime[agentId] = block.timestamp;
 
@@ -213,7 +280,7 @@ contract AgentRepValidator {
             AgentScore storage ms = moduleScores[agentId][i];
             names[i] = modules[i].module.name();
             scores[i] = ms.score;
-            confidences[i] = 100;
+            confidences[i] = ms.confidence;
             evidences[i] = ms.evidenceHash;
         }
 

@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
+    "module": "esnext",
     "lib": ["ES2022"],
     "outDir": "./dist",
     "rootDir": ".",
@@ -10,16 +10,18 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
   },
   "include": [
-    "scripts/**/*",
     "src/**/*",
     "test/hardhat/**/*",
     "test/skill/**/*",
+    "scripts/**/*"
   ],
   "exclude": ["node_modules", "dist", "out"],
 }

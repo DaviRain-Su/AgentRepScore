@@ -19,10 +19,65 @@ interface IPool {
 }
 
 contract AaveScoreModule is IScoreModule {
+    error UnauthorizedGovernance(address caller);
+    error UnauthorizedKeeper(address caller);
+
     IPool public immutable aavePool;
 
-    constructor(address aavePool_) {
+    address public governance;
+    address public pendingGovernance;
+    mapping(address => bool) public keepers;
+
+    struct WalletMeta {
+        uint256 liquidationCount;
+        uint256 suppliedAssetCount;
+        uint256 timestamp;
+    }
+
+    mapping(address => WalletMeta) public walletMeta;
+
+    event LiquidationCountUpdated(address indexed wallet, uint256 liquidationCount, uint256 suppliedAssetCount);
+    event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
+    event GovernanceTransferAccepted(address indexed newGovernance);
+
+    modifier onlyGovernance() {
+        if (msg.sender != governance) revert UnauthorizedGovernance(msg.sender);
+        _;
+    }
+
+    modifier onlyKeeper() {
+        if (!keepers[msg.sender]) revert UnauthorizedKeeper(msg.sender);
+        _;
+    }
+
+    constructor(address aavePool_, address governance_) {
         aavePool = IPool(aavePool_);
+        governance = governance_;
+    }
+
+    function setKeeper(address keeper, bool allowed) external onlyGovernance {
+        keepers[keeper] = allowed;
+    }
+
+    function initiateGovernanceTransfer(address newGovernance) external onlyGovernance {
+        pendingGovernance = newGovernance;
+        emit GovernanceTransferInitiated(governance, newGovernance);
+    }
+
+    function acceptGovernanceTransfer() external {
+        if (msg.sender != pendingGovernance) revert UnauthorizedGovernance(msg.sender);
+        governance = pendingGovernance;
+        pendingGovernance = address(0);
+        emit GovernanceTransferAccepted(governance);
+    }
+
+    function submitWalletMeta(address wallet, uint256 liquidationCount, uint256 suppliedAssetCount) external onlyKeeper {
+        walletMeta[wallet] = WalletMeta({
+            liquidationCount: liquidationCount,
+            suppliedAssetCount: suppliedAssetCount,
+            timestamp: block.timestamp
+        });
+        emit LiquidationCountUpdated(wallet, liquidationCount, suppliedAssetCount);
     }
 
     function name() external pure override returns (string memory) {
@@ -73,8 +128,8 @@ contract AaveScoreModule is IScoreModule {
             score -= 3000;
         }
 
-        // TODO: liquidation count needs off-chain indexer in MVP
-        uint256 liquidationCount = 0;
+        WalletMeta memory meta = walletMeta[wallet];
+        uint256 liquidationCount = meta.liquidationCount;
         score -= int256(liquidationCount * 1500);
 
         uint256 utilization = 0;
@@ -87,7 +142,10 @@ contract AaveScoreModule is IScoreModule {
             }
         }
 
-        uint256 assetCount = _countSuppliedAssets(wallet);
+        uint256 assetCount = meta.suppliedAssetCount;
+        if (assetCount == 0) {
+            assetCount = 1; // default if never submitted
+        }
         if (assetCount >= 3) {
             score += 1000;
         } else if (assetCount >= 2) {
@@ -99,11 +157,5 @@ contract AaveScoreModule is IScoreModule {
 
         confidence = 100;
         evidence = keccak256(abi.encodePacked(healthFactor, liquidationCount, utilization, assetCount));
-    }
-
-    function _countSuppliedAssets(address /* wallet */) internal pure returns (uint256) {
-        // MVP: Aave PoolDataProvider would be needed to count unique reserve balances > 0.
-        // For hackathon MVP we return a default of 1 if the user has any collateral.
-        return 1;
     }
 }

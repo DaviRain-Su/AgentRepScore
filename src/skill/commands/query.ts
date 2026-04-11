@@ -3,60 +3,7 @@ import { xLayerTestnet } from "viem/chains";
 import { QueryInput, ScoreOutput } from "../types.ts";
 import { applyDecay, trustTier } from "../../utils/score-decay.ts";
 import { config } from "../../config.ts";
-
-const identityRegistryAbi = [
-  {
-    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    name: "getAgentWallet",
-    outputs: [{ internalType: "address", name: "", type: "address" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
-
-const validatorAbi = [
-  {
-    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    name: "getLatestScore",
-    outputs: [
-      { internalType: "int256", name: "score", type: "int256" },
-      { internalType: "uint256", name: "timestamp", type: "uint256" },
-      { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    name: "getModuleScores",
-    outputs: [
-      { internalType: "string[]", name: "names", type: "string[]" },
-      { internalType: "int256[]", name: "scores", type: "int256[]" },
-      { internalType: "uint256[]", name: "confidences", type: "uint256[]" },
-      { internalType: "bytes32[]", name: "evidences", type: "bytes32[]" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    name: "modules",
-    outputs: [
-      { internalType: "contract IScoreModule", name: "module", type: "address" },
-      { internalType: "uint256", name: "weight", type: "uint256" },
-      { internalType: "bool", name: "active", type: "bool" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "moduleCount",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
+import { identityRegistryAbi, validatorAbi, moduleNameAbi } from "../abis.ts";
 
 export async function query(input: QueryInput): Promise<ScoreOutput> {
   if (!config.validatorAddress) {
@@ -104,7 +51,7 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
     });
     const name = await publicClient.readContract({
       address: mod[0],
-      abi: [{ inputs: [], name: "name", outputs: [{ internalType: "string", name: "", type: "string" }], stateMutability: "view", type: "function" }] as const,
+      abi: moduleNameAbi,
       functionName: "name",
     });
     weights[name] = Number(mod[1]);

@@ -2,44 +2,7 @@ import { createPublicClient, http } from "viem";
 import { xLayerTestnet } from "viem/chains";
 import { config } from "../../config.ts";
 import { ModulesOutput } from "../types.ts";
-
-const validatorAbi = [
-  {
-    inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    name: "modules",
-    outputs: [
-      { internalType: "contract IScoreModule", name: "module", type: "address" },
-      { internalType: "uint256", name: "weight", type: "uint256" },
-      { internalType: "bool", name: "active", type: "bool" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "moduleCount",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
-
-const moduleAbi = [
-  {
-    inputs: [],
-    name: "name",
-    outputs: [{ internalType: "string", name: "", type: "string" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "category",
-    outputs: [{ internalType: "string", name: "", type: "string" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
+import { validatorAbi, moduleNameAbi } from "../abis.ts";
 
 export async function modules(): Promise<ModulesOutput> {
   if (!config.validatorAddress) {
@@ -70,13 +33,13 @@ export async function modules(): Promise<ModulesOutput> {
 
     const name = await publicClient.readContract({
       address: mod[0],
-      abi: moduleAbi,
+      abi: moduleNameAbi,
       functionName: "name",
     });
 
     const category = await publicClient.readContract({
       address: mod[0],
-      abi: moduleAbi,
+      abi: moduleNameAbi,
       functionName: "category",
     });
 

@@ -65,11 +65,79 @@ contract AgentRepValidatorTest is Test {
         assertEq(w, 5000);
     }
 
+    function test_UpdateWeight_ExceedsTotalWeight() public {
+        validator.registerModule(modA, 4000);
+        validator.registerModule(modB, 3500);
+        // 4000 + 3500 = 7500; updating modA to 6501 makes total 10001
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.TotalWeightExceeded.selector, 10001));
+        validator.updateWeight(0, 6501);
+    }
+
     function test_SetModuleActive() public {
         validator.registerModule(modA, 4000);
         validator.setModuleActive(0, false);
         (, , bool a) = validator.modules(0);
         assertFalse(a);
+    }
+
+    function test_SetModuleActive_True_ExceedsTotalWeight() public {
+        validator.registerModule(modA, 6000);
+        validator.registerModule(modB, 3500);
+        validator.setModuleActive(1, false);
+        // active total = 6000; reactivating modB makes 9500, which is fine
+        validator.setModuleActive(1, true);
+
+        // Bypass path: deactivate B, register C, try to reactivate B
+        // active = 6000 + 2500 = 8500; reactivate B would make 6000+3500+2500 = 12000
+        validator.setModuleActive(1, false);
+        validator.registerModule(modC, 2500);
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.TotalWeightExceeded.selector, 12000));
+        validator.setModuleActive(1, true);
+    }
+
+    function test_HandleValidationRequest_UnauthorizedEvaluator() public {
+        validator.registerModule(modA, 10000);
+        bytes32 req = keccak256("test");
+        vm.prank(address(0xdead));
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.UnauthorizedEvaluator.selector, address(0xdead)));
+        validator.handleValidationRequest(req, agentId);
+    }
+
+    function test_EvaluateAgent_OnlyEvaluator() public {
+        validator.registerModule(modA, 10000);
+        vm.prank(address(0xdead));
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.UnauthorizedEvaluator.selector, address(0xdead)));
+        validator.evaluateAgent(agentId);
+    }
+
+    function test_SetEvaluator() public {
+        address keeper = address(0xbeef);
+        validator.setEvaluator(keeper, true);
+        assertTrue(validator.evaluators(keeper));
+    }
+
+    function test_GovernanceTransfer() public {
+        address newGov = address(0xabcd);
+        validator.initiateGovernanceTransfer(newGov);
+        assertEq(validator.pendingGovernance(), newGov);
+        vm.prank(newGov);
+        validator.acceptGovernanceTransfer();
+        assertEq(validator.governance(), newGov);
+        assertEq(validator.pendingGovernance(), address(0));
+    }
+
+    function test_GetModuleScores_Confidence() public {
+        modB.setResult(6000, 50, bytes32(uint256(2)));
+        validator.registerModule(modA, 4000);
+        validator.registerModule(modB, 3500);
+        validator.registerModule(modC, 2500);
+
+        validator.evaluateAgent(agentId);
+        (string[] memory names, int256[] memory scores, uint256[] memory confidences,) = validator.getModuleScores(agentId);
+        assertEq(names.length, 3);
+        assertEq(confidences[0], 100);
+        assertEq(confidences[1], 50);
+        assertEq(confidences[2], 100);
     }
 
     function test_EvaluateAgent_Normal() public {
@@ -164,5 +232,47 @@ contract AgentRepValidatorTest is Test {
         validator.handleValidationRequest(req, agentId);
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ValidationAlreadyHandled.selector, req));
         validator.handleValidationRequest(req, agentId);
+    }
+
+    // Fuzz tests
+    function testFuzz_TotalWeightNeverExceeds10000(uint256 weightA, uint256 weightB, uint256 weightC) public {
+        weightA = bound(weightA, 0, 10000);
+        weightB = bound(weightB, 0, 10000);
+        weightC = bound(weightC, 0, 10000);
+
+        if (weightA <= 10000) {
+            validator.registerModule(modA, weightA);
+        }
+        if (weightA + weightB <= 10000) {
+            validator.registerModule(modB, weightB);
+        } else {
+            vm.expectRevert();
+            validator.registerModule(modB, weightB);
+            return;
+        }
+        if (weightA + weightB + weightC <= 10000) {
+            validator.registerModule(modC, weightC);
+        } else {
+            vm.expectRevert();
+            validator.registerModule(modC, weightC);
+        }
+    }
+
+    function testFuzz_EvaluatedScoreWithinBounds(int256 scoreA, int256 scoreB, int256 scoreC) public {
+        scoreA = bound(scoreA, -10000, 10000);
+        scoreB = bound(scoreB, -10000, 10000);
+        scoreC = bound(scoreC, -10000, 10000);
+
+        modA.setResult(scoreA, 100, bytes32(uint256(1)));
+        modB.setResult(scoreB, 100, bytes32(uint256(2)));
+        modC.setResult(scoreC, 100, bytes32(uint256(3)));
+
+        validator.registerModule(modA, 4000);
+        validator.registerModule(modB, 3500);
+        validator.registerModule(modC, 2500);
+
+        (int256 score,) = validator.evaluateAgent(agentId);
+        assertGe(score, ScoreConstants.MIN_SCORE);
+        assertLe(score, ScoreConstants.MAX_SCORE);
     }
 }

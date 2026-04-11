@@ -4,72 +4,18 @@ import { xLayerTestnet } from "viem/chains";
 import { config } from "../../config.ts";
 import { EvaluateInput, ScoreOutput } from "../types.ts";
 import { applyDecay, trustTier } from "../../utils/score-decay.ts";
+import { identityRegistryAbi, validatorAbi, moduleNameAbi } from "../abis.ts";
 
-const identityRegistryAbi = [
-  {
-    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    name: "getAgentWallet",
-    outputs: [{ internalType: "address", name: "", type: "address" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
-const validatorAbi = [
-  {
-    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    name: "evaluateAgent",
-    outputs: [
-      { internalType: "int256", name: "score", type: "int256" },
-      { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
-    ],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    name: "getLatestScore",
-    outputs: [
-      { internalType: "int256", name: "score", type: "int256" },
-      { internalType: "uint256", name: "timestamp", type: "uint256" },
-      { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    name: "getModuleScores",
-    outputs: [
-      { internalType: "string[]", name: "names", type: "string[]" },
-      { internalType: "int256[]", name: "scores", type: "int256[]" },
-      { internalType: "uint256[]", name: "confidences", type: "uint256[]" },
-      { internalType: "bytes32[]", name: "evidences", type: "bytes32[]" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    name: "modules",
-    outputs: [
-      { internalType: "contract IScoreModule", name: "module", type: "address" },
-      { internalType: "uint256", name: "weight", type: "uint256" },
-      { internalType: "bool", name: "active", type: "bool" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "moduleCount",
-    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
-
-export async function evaluate(input: EvaluateInput): Promise<ScoreOutput> {
+export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { evidenceHash: `0x${string}` }> {
   if (!config.validatorAddress) {
     throw new Error("VALIDATOR_ADDRESS not set");
   }
@@ -102,7 +48,11 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput> {
     args: [BigInt(input.agentId)],
   });
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+  const receipt = await withTimeout(
+    publicClient.waitForTransactionReceipt({ hash: txHash }),
+    60_000,
+    "waitForTransactionReceipt (evaluateAgent)"
+  );
   if (receipt.status !== "success") {
     throw new Error("evaluateAgent transaction failed");
   }
@@ -137,7 +87,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput> {
     });
     const name = await publicClient.readContract({
       address: mod[0],
-      abi: [{ inputs: [], name: "name", outputs: [{ internalType: "string", name: "", type: "string" }], stateMutability: "view", type: "function" }] as const,
+      abi: moduleNameAbi,
       functionName: "name",
     });
     weights[name] = Number(mod[1]);
@@ -145,6 +95,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput> {
 
   const rawScore = Number(latest[0]);
   const timestamp = Number(latest[1]);
+  const evidenceHash = latest[2];
   const decayedScore = applyDecay(rawScore, timestamp);
 
   const moduleBreakdown = modules[0].map((name, i) => ({
@@ -161,6 +112,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput> {
     decayedScore,
     trustTier: trustTier(decayedScore),
     timestamp,
+    evidenceHash,
     moduleBreakdown,
   };
 }

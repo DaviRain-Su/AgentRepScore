@@ -50,7 +50,7 @@ async function tidxQuery(sql: string): Promise<TidxQueryResponse> {
     const text = await res.text();
     throw new Error(`tidx query failed (${res.status}): ${text}`);
   }
-  const data: TidxQueryResponse = await res.json();
+  const data = (await res.json()) as TidxQueryResponse;
   if (!data.ok) {
     throw new Error(`tidx query returned error: ${JSON.stringify(data)}`);
   }

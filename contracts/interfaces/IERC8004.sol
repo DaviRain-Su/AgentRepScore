@@ -23,3 +23,7 @@ interface IERC8004Reputation {
     function getSummary(uint256 agentId, address[] calldata clientAddresses, string calldata tag1, string calldata tag2)
         external view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals);
 }
+
+interface IValidationRegistry {
+    function validationRequestExists(bytes32 requestHash) external view returns (bool);
+}

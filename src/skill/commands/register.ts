@@ -3,45 +3,16 @@ import { privateKeyToAccount } from "viem/accounts";
 import { xLayerTestnet } from "viem/chains";
 import { config } from "../../config.ts";
 import { RegisterInput } from "../types.ts";
+import { identityRegistryAbi } from "../abis.ts";
 
-const identityRegistryAbi = [
-  {
-    inputs: [{ internalType: "string", name: "agentURI", type: "string" }],
-    name: "register",
-    outputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
-    name: "ownerOf",
-    outputs: [{ internalType: "address", name: "", type: "address" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [
-      { internalType: "uint256", name: "agentId", type: "uint256" },
-      { internalType: "address", name: "newWallet", type: "address" },
-      { internalType: "uint256", name: "deadline", type: "uint256" },
-      { internalType: "bytes", name: "signature", type: "bytes" },
-    ],
-    name: "setAgentWallet",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    anonymous: false,
-    inputs: [
-      { indexed: true, internalType: "uint256", name: "agentId", type: "uint256" },
-      { indexed: false, internalType: "string", name: "agentURI", type: "string" },
-      { indexed: true, internalType: "address", name: "owner", type: "address" },
-    ],
-    name: "Registered",
-    type: "event",
-  },
-] as const;
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 export async function register(input: RegisterInput): Promise<{ agentId: string; txHash: string }> {
   if (!config.privateKey) {
@@ -60,7 +31,11 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
     args: [input.uri],
   });
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: registerHash });
+  const receipt = await withTimeout(
+    publicClient.waitForTransactionReceipt({ hash: registerHash }),
+    60_000,
+    "waitForTransactionReceipt (register)"
+  );
 
   let agentId = "0";
   for (const log of receipt.logs) {
@@ -98,7 +73,7 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
     domain: {
       name: "ERC8004IdentityRegistry",
       version: "1",
-      chainId: 1952,
+      chainId: BigInt(xLayerTestnet.id),
       verifyingContract: config.identityRegistry as `0x${string}`,
     },
     types: {
@@ -125,7 +100,11 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
     args: [BigInt(agentId), input.wallet, deadline, signature],
   });
 
-  await publicClient.waitForTransactionReceipt({ hash: setWalletHash });
+  await withTimeout(
+    publicClient.waitForTransactionReceipt({ hash: setWalletHash }),
+    60_000,
+    "waitForTransactionReceipt (setAgentWallet)"
+  );
 
   return { agentId, txHash: registerHash };
 }
