@@ -1,0 +1,22 @@
+# Ralph Progress Log
+Started: 2026年 4月11日 星期六 22时34分41秒 CST
+
+## Codebase Patterns
+- Contract addresses: `README.md` maintains the canonical list of deployed testnet/mainnet contracts. If integration tests fail against testnet due to address mismatches, check `README.md` first — `.env` can drift from actual deployments.
+- Multi-framework tests: Foundry tests cover Solidity logic (unit/fuzz/invariant). vitest covers TypeScript skill code and on-chain integration tests against X Layer testnet.
+- Quality gate: Always run `pnpm test:all` before committing. It runs both `vitest run` and `forge test`.
+- Config layering: `src/config.ts` uses `NETWORK` env var (`mainnet` | `testnet`, defaults to `testnet`) and switches RPC, chainId, and default registry addresses accordingly.
+
+---
+
+## 2026-04-11 22:41 CST - ENV-001
+Tool: pi
+- Updated `VALIDATOR_ADDRESS` in `.env` from the old/stale address `0x36ce0...` to the current testnet deployment `0x8A924C10fD2f789c323BbB06bf747caEfE9F6efb` (matches `README.md`).
+- Verified `pnpm test:all` now passes: 76 Foundry tests + 14 vitest tests (including the previously failing `integration.test.ts`).
+- Added root `AGENTS.md` to preserve project-wide patterns for future iterations.
+- Files changed: `.env`, `prd.json` (created), `AGENTS.md`, `progress.txt`
+- **Learnings for future iterations:**
+  - `.env` can drift from actual deployments; always cross-check `README.md` when integration tests fail with timestamp/score = 0.
+  - The integration test suite requires live testnet RPC and valid deployed contract addresses; it will be skipped automatically if env vars are missing.
+  - `xLayerTestnet.id` used in EIP-712 typed data is 195 (confirmed by viem chain definition).
+---

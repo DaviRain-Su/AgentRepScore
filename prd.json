@@ -1,0 +1,42 @@
+{
+  "projectName": "AgentRepScore",
+  "branchName": "main",
+  "version": "1.0.0",
+  "userStories": [
+    {
+      "id": "ENV-001",
+      "title": "Fix testnet validator address in .env",
+      "description": "Update VALIDATOR_ADDRESS in .env to match the currently deployed testnet validator contract so integration tests pass.",
+      "priority": 1,
+      "passes": true
+    },
+    {
+      "id": "CI-001",
+      "title": "Add vitest TypeScript tests to GitHub Actions workflow",
+      "description": "Extend the existing CI workflow to install Node dependencies and run vitest tests (including skill unit tests) so TypeScript code is validated on every push/PR.",
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "CON-001",
+      "title": "Add getModulesWithNames view function to AgentRepValidator",
+      "description": "Add a view function that returns all module addresses, names, weights, and active states in a single call to eliminate N+1 RPC queries from the Skill layer.",
+      "priority": 3,
+      "passes": false
+    },
+    {
+      "id": "API-001",
+      "title": "Expose CLI entry point for Skill commands",
+      "description": "Create a lightweight CLI (e.g., using Commander.js) so users can run rep:register, rep:evaluate, rep:query, rep:compare, and rep:modules from the terminal.",
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "API-002",
+      "title": "Add OpenAPI documentation for HTTP API",
+      "description": "Generate OpenAPI/Swagger documentation for the Skill endpoints to lower integration cost for third-party Agent platforms.",
+      "priority": 5,
+      "passes": false
+    }
+  ]
+}
