@@ -127,3 +127,42 @@ export const moduleNameAbi = [
     type: "function",
   },
 ] as const;
+
+export const agentEvaluatedEventAbi = {
+  type: "event",
+  name: "AgentEvaluated",
+  inputs: [
+    { indexed: true, name: "agentId", type: "uint256" },
+    { indexed: false, name: "score", type: "int256" },
+    { indexed: false, name: "normalizedScore", type: "int128" },
+    { indexed: false, name: "valueDecimals", type: "uint8" },
+    { indexed: false, name: "evidenceHash", type: "bytes32" },
+  ],
+} as const;
+
+export const swapSummarySubmittedEventAbi = {
+  type: "event",
+  name: "SwapSummarySubmitted",
+  inputs: [
+    { indexed: true, name: "wallet", type: "address" },
+    { indexed: false, name: "swapCount", type: "uint256" },
+    { indexed: false, name: "volumeUSD", type: "uint256" },
+    { indexed: false, name: "netPnL", type: "int256" },
+    { indexed: false, name: "washTradeFlag", type: "bool" },
+    { indexed: false, name: "counterpartyConcentrationFlag", type: "bool" },
+    { indexed: false, name: "evidenceHash", type: "bytes32" },
+    { indexed: false, name: "pool", type: "address" },
+  ],
+} as const;
+
+export const activitySummarySubmittedEventAbi = {
+  type: "event",
+  name: "ActivitySummarySubmitted",
+  inputs: [
+    { indexed: true, name: "wallet", type: "address" },
+    { indexed: false, name: "txCount", type: "uint256" },
+    { indexed: false, name: "uniqueCounterparties", type: "uint256" },
+    { indexed: false, name: "evidenceHash", type: "bytes32" },
+    { indexed: false, name: "sybilClusterFlag", type: "bool" },
+  ],
+} as const;
