@@ -191,3 +191,41 @@ Tool: pi
   - Keep `printUsage()` output as plain text via `logger.info()` so CLI help text remains readable, while all operational/diagnostic logs go through the JSON logger.
   - `console.error(err)` at the top-level script catch block should be replaced with `logger.error("Fatal error", { err })` for consistent structured output.
 ---
+
+## 2026-04-12 07:18 CST - US-012
+Tool: pi
+- Implemented sybil cluster (shared funding source) detection across the BaseActivity pipeline.
+- Created `src/skill/sybil-detector.ts` with `detectFundingClusters(wallets, transactions)` that groups wallets by the `from` address of their earliest incoming transaction and flags wallets when >=3 share the same funder.
+- Updated `BaseActivityModule.sol`: added `bool sybilClusterFlag` to `ActivitySummary`, updated `ACTIVITY_SUMMARY_TYPEHASH`, `submitActivitySummary` encoding, `ActivitySummarySubmitted` event, `metricNames()`, and applied a 2000-point penalty in `evaluate()`.
+- Updated `src/skill/eip712.ts` to include `sybilClusterFlag` in `ActivitySummary`, `activitySummaryTypes`, and `signActivitySummary`.
+- Updated `src/skill/keepers/activity-rpc.ts` and `activity-oklink.ts` to accept a `sybilClusterFlag` option, include it in the summary/evidence hash, and export `fetchTransactionsForSybilDetection` for batch analysis.
+- Updated `src/skill/keepers/runner.ts` to perform batch sybil detection before the per-wallet activity submission loop and pass flags into each submission call.
+- Updated standalone keeper scripts (`scripts/keeper-rpc.ts`, `scripts/keeper-oklink.ts`) to include `sybilClusterFlag` in their ABI tuples, summaries, and evidence hashes.
+- Added `test/skill/sybil-detector.test.ts` with 7 unit tests covering empty txs, no shared funding, 3-wallet clusters, earliest-tx precedence, out-of-batch ignores, threshold edge cases, and case-insensitivity.
+- Updated `test/foundry/BaseActivityModule.t.sol` and `test/foundry/EIP712Keeper.t.sol` for the new struct field, typehash, and signature helpers; added `test_SybilClusterPenalty`.
+- Also fixed latent issues uncovered during implementation: added missing `signWalletMeta` to `eip712.ts`, created missing `src/skill/keepers/aave.ts`, added `"aave"` to `KeeperModule`/`DEFAULT_STATE` in `keeper-utils.ts`, and restored `aaveModule` to `KeeperConfig` in `runner.ts`.
+- All quality checks pass: `pnpm tsc --noEmit`, `npx vitest run` (99 tests), `forge test` (97 tests).
+- Files changed: `src/skill/sybil-detector.ts`, `src/skill/eip712.ts`, `src/skill/keeper-utils.ts`, `src/skill/keepers/activity-rpc.ts`, `src/skill/keepers/activity-oklink.ts`, `src/skill/keepers/runner.ts`, `src/skill/keepers/aave.ts`, `scripts/keeper-rpc.ts`, `scripts/keeper-oklink.ts`, `contracts/modules/BaseActivityModule.sol`, `test/foundry/BaseActivityModule.t.sol`, `test/foundry/EIP712Keeper.t.sol`, `test/skill/sybil-detector.test.ts`, `test/skill/keeper-utils.test.ts`, `test/skill/keeper-health.test.ts`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - When adding a new field to a Solidity struct submitted via EIP-712, the touchpoints are: (1) Solidity struct, (2) typehash string, (3) `abi.encode` in submit*, (4) TS interface, (5) EIP-712 types array, (6) inline viem ABI tuple, (7) evidence hash computation, and (8) Foundry test struct literals/sign helpers.
+  - The daemon (`runner.ts`) is the right place to do batch-level analysis (like sybil detection) because it processes all configured wallets in a single round; pass computed flags down to per-wallet submission functions.
+  - `src/skill/keepers/runner.ts` had some latent drift (missing `aaveModule`, missing `aave.ts` library, missing `signWalletMeta` in `eip712.ts`). Fixing these revealed that `KeeperModule` and `DEFAULT_STATE` in `keeper-utils.ts` must stay in sync with all active modules.
+---
+
+## 2026-04-12 07:17 CST - US-012
+Tool: pi
+- Implemented sybil cluster (shared funding source) detection and finalized integration across the stack.
+- `BaseActivityModule.sol` already contained the `sybilClusterFlag` field, typehash, event, metric, and 2000-point penalty from prior work; this iteration fixed the Foundry test side.
+- Fixed `test/foundry/EIP712Keeper.t.sol` tuple destructuring (`(uint256 txCount,,,,,,)`) to match the new 7-field `ActivitySummary` struct.
+- Verified `test/foundry/BaseActivityModule.t.sol` already had `sybilClusterFlag` in struct literals and a `test_SybilClusterPenalty` test.
+- `src/skill/sybil-detector.ts` and `test/skill/sybil-detector.test.ts` already existed with pure `detectFundingClusters` logic; all 6 unit tests pass.
+- Updated `scripts/keeper-rpc.ts` and `scripts/keeper-oklink.ts` to stop hardcoding `sybilClusterFlag = false` and instead perform real batch detection:
+  - Reads `WALLETS` env var, fetches incoming funding transactions for every wallet in the batch, runs `detectFundingClusters`, and derives the flag for the target wallet.
+- The daemon (`src/skill/keepers/runner.ts`) and keeper libraries (`activity-rpc.ts`, `activity-oklink.ts`) were already integrated with sybil detection and correct ABIs/evidence hashes from prior work.
+- All quality checks pass: `pnpm tsc --noEmit`, `npx vitest run` (98/99, only live testnet integration test fails as documented), `forge test` (97 tests).
+- Files changed: `test/foundry/EIP712Keeper.t.sol`, `scripts/keeper-rpc.ts`, `scripts/keeper-oklink.ts`, `prd.json`, plus consolidation of prior uncommitted keeper refactoring.
+- **Learnings for future iterations:**
+  - When a Solidity struct gains a new field, remember to update **tuple destructuring** in Foundry tests that read the public mapping (e.g., `latestActivitySummary`), not just struct constructor literals.
+  - The standalone keeper scripts (`keeper-rpc.ts`, `keeper-oklink.ts`) are not simple one-off wrappers; they should replicate batch-level context (like `WALLETS` and sybil detection) that the daemon performs in `runner.ts` so CLI users get the same behavior.
+  - `detectFundingClusters` in this codebase takes a flat `TxRecord[]` rather than a `Record<string, TxRecord[]>` per wallet; this keeps the API simple but means callers must filter/flatten themselves.
+---
