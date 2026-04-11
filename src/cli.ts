@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { register, evaluate, query, compare, modules } from "./skill/index.ts";
+import { loadKeeperHealth } from "./skill/keeper-utils.ts";
 import { logger } from "./skill/logger.ts";
 
 export const program = new Command();
@@ -50,6 +51,33 @@ program
   .action(async () => {
     const result = await modules();
     console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("keeper-health")
+  .description("Show keeper service health status")
+  .option("-t, --threshold <number>", "Alert threshold for consecutive failures", "3")
+  .action(async (options: { threshold: string }) => {
+    const health = loadKeeperHealth();
+    const threshold = Number(options.threshold);
+    const healthy = health.consecutiveFailures < threshold;
+    console.log(
+      JSON.stringify(
+        {
+          healthy,
+          lastSuccessBlock: health.lastSuccessBlock,
+          lastSuccessTimestamp: health.lastSuccessTimestamp,
+          lastRunTimestamp: health.lastRunTimestamp,
+          consecutiveFailures: health.consecutiveFailures,
+          alertThreshold: threshold,
+        },
+        null,
+        2
+      )
+    );
+    if (!healthy) {
+      process.exitCode = 1;
+    }
   });
 
 function isMainModule() {

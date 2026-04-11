@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { register, evaluate, query, compare, modules } from "./skill/index.ts";
+import { loadKeeperHealth } from "./skill/keeper-utils.ts";
 import { logger } from "./skill/logger.ts";
 
 const app: express.Application = express();
@@ -19,7 +20,20 @@ app.get("/api-docs.json", (_req, res) => {
 });
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  const keeper = loadKeeperHealth();
+  const alertThreshold = Number(process.env.KEEPER_ALERT_THRESHOLD || "3");
+  const keeperHealthy = keeper.consecutiveFailures < alertThreshold;
+  res.json({
+    ok: keeperHealthy,
+    keeper: {
+      lastSuccessBlock: keeper.lastSuccessBlock,
+      lastSuccessTimestamp: keeper.lastSuccessTimestamp,
+      lastRunTimestamp: keeper.lastRunTimestamp,
+      consecutiveFailures: keeper.consecutiveFailures,
+      alertThreshold,
+      healthy: keeperHealthy,
+    },
+  });
 });
 
 app.post("/register", async (req, res, next) => {

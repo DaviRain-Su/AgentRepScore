@@ -26,6 +26,11 @@ vi.mock("../../src/skill/commands/modules", () => ({
   modules: (...args: any[]) => mockModules(...args),
 }));
 
+const mockLoadKeeperHealth = vi.fn();
+vi.mock("../../src/skill/keeper-utils", () => ({
+  loadKeeperHealth: (...args: any[]) => mockLoadKeeperHealth(...args),
+}));
+
 import { program } from "../../src/cli.ts";
 
 describe("CLI", () => {
@@ -127,6 +132,46 @@ describe("CLI", () => {
     const output = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(output.modules[0].name).toBe("Activity");
 
+    logSpy.mockRestore();
+  });
+
+  it("keeper-health outputs health status as JSON", async () => {
+    mockLoadKeeperHealth.mockReturnValueOnce({
+      lastSuccessBlock: "42",
+      lastSuccessTimestamp: "2026-04-12T00:00:00.000Z",
+      lastRunTimestamp: "2026-04-12T00:05:00.000Z",
+      consecutiveFailures: 0,
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.parseAsync(["node", "rep", "keeper-health"]);
+
+    expect(mockLoadKeeperHealth).toHaveBeenCalled();
+    const output = JSON.parse(logSpy.mock.calls[0][0] as string);
+    expect(output.healthy).toBe(true);
+    expect(output.lastSuccessBlock).toBe("42");
+    expect(output.consecutiveFailures).toBe(0);
+    expect(output.alertThreshold).toBe(3);
+
+    logSpy.mockRestore();
+  });
+
+  it("keeper-health exits with code 1 when unhealthy", async () => {
+    mockLoadKeeperHealth.mockReturnValueOnce({
+      lastSuccessBlock: "10",
+      lastSuccessTimestamp: "2026-04-11T00:00:00.000Z",
+      lastRunTimestamp: "2026-04-12T00:05:00.000Z",
+      consecutiveFailures: 5,
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.parseAsync(["node", "rep", "keeper-health"]);
+
+    const output = JSON.parse(logSpy.mock.calls[0][0] as string);
+    expect(output.healthy).toBe(false);
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = undefined;
     logSpy.mockRestore();
   });
 

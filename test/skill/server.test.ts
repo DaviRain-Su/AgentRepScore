@@ -6,6 +6,7 @@ const mockEvaluate = vi.fn();
 const mockQuery = vi.fn();
 const mockCompare = vi.fn();
 const mockModules = vi.fn();
+const mockLoadKeeperHealth = vi.fn();
 
 vi.mock("../../src/skill/index", () => ({
   register: (...args: any[]) => mockRegister(...args),
@@ -15,6 +16,10 @@ vi.mock("../../src/skill/index", () => ({
   modules: (...args: any[]) => mockModules(...args),
 }));
 
+vi.mock("../../src/skill/keeper-utils", () => ({
+  loadKeeperHealth: (...args: any[]) => mockLoadKeeperHealth(...args),
+}));
+
 import { app } from "../../src/server.ts";
 
 describe("HTTP API", () => {
@@ -22,10 +27,33 @@ describe("HTTP API", () => {
     vi.resetAllMocks();
   });
 
-  it("GET /health returns ok", async () => {
+  it("GET /health returns ok with keeper health when healthy", async () => {
+    mockLoadKeeperHealth.mockReturnValueOnce({
+      lastSuccessBlock: "100",
+      lastSuccessTimestamp: "2026-04-12T00:00:00.000Z",
+      lastRunTimestamp: "2026-04-12T00:05:00.000Z",
+      consecutiveFailures: 0,
+    });
     const res = await request(app).get("/health");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body.ok).toBe(true);
+    expect(res.body.keeper.healthy).toBe(true);
+    expect(res.body.keeper.consecutiveFailures).toBe(0);
+    expect(res.body.keeper.lastSuccessBlock).toBe("100");
+  });
+
+  it("GET /health returns ok=false when keeper failures exceed threshold", async () => {
+    mockLoadKeeperHealth.mockReturnValueOnce({
+      lastSuccessBlock: "50",
+      lastSuccessTimestamp: "2026-04-11T00:00:00.000Z",
+      lastRunTimestamp: "2026-04-12T00:05:00.000Z",
+      consecutiveFailures: 5,
+    });
+    const res = await request(app).get("/health");
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.keeper.healthy).toBe(false);
+    expect(res.body.keeper.consecutiveFailures).toBe(5);
   });
 
   it("GET /api-docs.json returns the OpenAPI spec", async () => {

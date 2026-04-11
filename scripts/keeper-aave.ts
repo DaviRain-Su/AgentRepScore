@@ -16,6 +16,7 @@ import {
   recordSubmission,
   saveKeeperState,
   submitWithRetry,
+  updateKeeperHealth,
 } from "../src/skill/keeper-utils.ts";
 import {
   fetchNonce,
@@ -153,7 +154,9 @@ async function main() {
     logger.info(`Wallet meta submitted successfully (block ${receipt.blockNumber})`);
     const newState = recordSubmission(state, "aave", wallet, evidenceHash, receipt.blockNumber);
     saveKeeperState(newState);
+    updateKeeperHealth(true);
   } else {
+    updateKeeperHealth(false);
     logger.error("Transaction reverted!");
     process.exit(1);
   }

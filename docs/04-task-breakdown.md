@@ -70,7 +70,7 @@
 | P1-01 | 实现 A→B→A 循环流转检测（< 10 区块） | 🟢 已完成 | `scripts/indexer-uniswap.ts` 中 `detectWashTrade` 检测同一钱包 ≤10 区块内的 amount0/amount1 符号翻转，标记 `washTradeFlag`；`UniswapScoreModule` 扣 3000 分 | 1-2 天 |
 | P1-02 | 实现 Counterparty 集中度检测 | 🟢 已完成 | `detectCounterpartyConcentration` 检测 ≤2 个 counterparty 且 >70% swap 活动；合约新增 `counterpartyConcentrationFlag` 字段，扣 1500 分 | 1-2 天 |
 | P1-03 | 实现资金源集群检测 | 🔴 未开始 | 检测多个 Agent 钱包是否来自同一 faucet/同一笔资金的子地址分发 | 2-3 天 |
-| P1-04 | 在 `UniswapScoreModule.evaluate` 中利用链上实时状态做二次校验 | 🟡 部分 | 当前 `feeToPnlRatioBps` 已使用；可进一步读取链上 Uniswap Pool 的 `slot0` 做价格合理性校验 | 1-2 天 |
+| P1-04 | 在 `UniswapScoreModule.evaluate` 中利用链上实时状态做二次校验 | 🟢 已完成 | `evaluate()` 已读取链上 Pool `slot0` sqrtPriceX96，与 `referenceSqrtPriceX96` 对比，偏差 >10% 时返回 0 分；5 个 Foundry 测试覆盖 | 1-2 天 |
 | P1-11 | Keeper 提交增加链下 EIP-712 签名验证 | 🟢 已完成 | `contracts/lib/EIP712Lib.sol` 提供签名工具；三个模块的 `submit*` 函数均验证 EIP-712 签名 + nonce；`src/skill/eip712.ts` 提供 viem 签名封装 | 1-2 天 |
 | P1-12 | 修复测试自欺问题 + 文档过时 | 🟢 已修复 | `compare.test.ts` 已重写为测试真实 `compare.ts` 源码（使用 `vi.mock`）；`DESIGN.md` 和 `README.md` 中的过时内容已更新 | 0.5 天 |
 

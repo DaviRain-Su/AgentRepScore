@@ -122,12 +122,14 @@ async function main() {
   let roundSuccess = await runRound(wallets);
   let health = updateKeeperHealth(roundSuccess);
 
+  const alertThreshold = Number(process.env.KEEPER_ALERT_THRESHOLD || "3");
+
   // Then schedule
   setInterval(async () => {
     roundSuccess = await runRound(wallets);
     health = updateKeeperHealth(roundSuccess);
-    if (health.consecutiveFailures >= 3) {
-      logger.error("[daemon] ALERT: Keeper submissions have failed for 3 consecutive rounds. Immediate operator attention required.", { consecutiveFailures: health.consecutiveFailures });
+    if (health.consecutiveFailures >= alertThreshold) {
+      logger.error(`[daemon] ALERT: Keeper submissions have failed for ${health.consecutiveFailures} consecutive rounds (threshold: ${alertThreshold}). Immediate operator attention required.`, { consecutiveFailures: health.consecutiveFailures, alertThreshold });
     }
   }, intervalMs);
 

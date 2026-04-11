@@ -11,6 +11,24 @@
 Started: 2026年 4月11日 星期六 23时28分07秒 CST
 ---
 
+## 2026-04-12 06:48 CST - US-011
+Tool: pi
+- Added keeper health check and basic monitoring to the daemon and CLI.
+- Extended `src/skill/keeper-utils.ts` with `KeeperHealth` interface, `loadKeeperHealth`, `saveKeeperHealth`, `getMaxSubmittedBlock`, and `updateKeeperHealth`.
+- Updated `scripts/keeper-daemon.ts` so `runRound` returns a boolean indicating full success; after each round the daemon writes `keeper-health.json` with `lastSuccessBlock`, `lastSuccessTimestamp`, and `consecutiveFailures`.
+- When 3 consecutive rounds fail, the daemon emits an explicit ERROR-level alert log: "ALERT: Keeper submissions have failed for 3 consecutive rounds. Immediate operator attention required."
+- Created `scripts/keeper-health.ts` with `isMainModule()` guard; exits 0 when healthy and 1 when `consecutiveFailures >= 3` or no success has been recorded.
+- Added `keeper:health` npm script to `package.json`.
+- Added `KEEPER_HEALTH_PATH` to `.env.example` and documented the health check in `README.md`.
+- Added `test/skill/keeper-health.test.ts` with 7 unit tests covering default health, save/load roundtrip, max block calculation, success/failure tracking, and malformed JSON fallback.
+- All quality checks pass: `pnpm tsc --noEmit`, `npx vitest run test/skill/` (81 tests), `forge test` (96 tests).
+- Files changed: `src/skill/keeper-utils.ts`, `scripts/keeper-daemon.ts`, `scripts/keeper-health.ts`, `test/skill/keeper-health.test.ts`, `package.json`, `.env.example`, `README.md`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - The daemon tracks round-level success (not per-command) and derives `lastSuccessBlock` from the existing `.keeper-state.json` file rather than trying to capture block numbers from spawned subprocesses.
+  - `updateKeeperHealth` is synchronous (reads/writes JSON files with sync FS helpers) so it can be called inline after `runRound` without complicating the scheduling loop.
+  - When adding a new health/utility to keeper code, expose both a programmatic API (`updateKeeperHealth`) and a thin CLI wrapper (`scripts/keeper-health.ts`) so operators can integrate with existing monitoring stacks (e.g., cron + `pnpm keeper:health`).
+---
+
 ## 2026-04-12 06:37 CST - US-010
 Tool: pi
 - Added Uniswap slot0 price sanity check to `UniswapScoreModule.evaluate()`.

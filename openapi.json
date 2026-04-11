@@ -14,17 +14,28 @@
   "paths": {
     "/health": {
       "get": {
-        "summary": "Health check",
+        "summary": "Health check with keeper service status",
         "operationId": "healthCheck",
         "responses": {
           "200": {
-            "description": "API is running",
+            "description": "API and keeper health status",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "ok": { "type": "boolean" }
+                    "ok": { "type": "boolean", "description": "Overall health (false if keeper failures exceed threshold)" },
+                    "keeper": {
+                      "type": "object",
+                      "properties": {
+                        "lastSuccessBlock": { "type": "string", "description": "Block number of last successful submission" },
+                        "lastSuccessTimestamp": { "type": "string", "description": "ISO timestamp of last successful submission" },
+                        "lastRunTimestamp": { "type": "string", "description": "ISO timestamp of last keeper run" },
+                        "consecutiveFailures": { "type": "integer", "description": "Number of consecutive failed rounds" },
+                        "alertThreshold": { "type": "integer", "description": "Failure count that triggers unhealthy status" },
+                        "healthy": { "type": "boolean", "description": "Whether keeper is within acceptable failure threshold" }
+                      }
+                    }
                   }
                 }
               }

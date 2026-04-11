@@ -58,11 +58,11 @@
     },
     {
       "id": "US-005",
-      "title": "Implement wash trade (A→B→A) detection in indexer",
+      "title": "Implement wash trade (A\u2192B\u2192A) detection in indexer",
       "description": "Detect closed-loop swap cycles within 10 blocks from the same wallet and flag them as wash trades before on-chain submission.",
       "acceptanceCriteria": [
         "Add wash-trade detection logic to `scripts/indexer-uniswap.ts` (or a shared util)",
-        "Flag is set when the same wallet performs A→B swap followed by B→A swap within 10 blocks",
+        "Flag is set when the same wallet performs A\u2192B swap followed by B\u2192A swap within 10 blocks",
         "Flagged summaries include `washTradeFlag: true` and are still submitted but marked for scoring penalties",
         "Add a unit test for the detection logic",
         "TypeScript compiles without errors"
@@ -76,7 +76,7 @@
       "description": "Detect sybil behavior by checking if >70% of a wallet's swap activity involves the same 2 counterparties.",
       "acceptanceCriteria": [
         "Add counterparty concentration logic to the indexer or a shared analysis util",
-        "Trigger a penalty flag when >70% of swaps in a window involve ≤2 unique counterparties",
+        "Trigger a penalty flag when >70% of swaps in a window involve \u22642 unique counterparties",
         "Integrate the flag into the summary submitted to the validator",
         "Add a unit test for the concentration logic",
         "TypeScript compiles without errors"
@@ -150,6 +150,25 @@
       ],
       "priority": 11,
       "passes": true
+    },
+    {
+      "id": "US-012",
+      "title": "Implement sybil cluster (shared funding source) detection",
+      "description": "Detect when multiple Agent wallets share the same initial funding source (faucet or parent address distribution) to prevent sybil attacks. The detection should be integrated into the BaseActivity submission pipeline.",
+      "acceptanceCriteria": [
+        "Create src/skill/sybil-detector.ts with detectFundingClusters(wallets, transactions) that groups wallets by shared funding from address",
+        "A wallet is flagged if its earliest incoming transaction shares the same from address with >=2 other agent wallets in the batch",
+        "Update BaseActivityModule.sol to add bool sybilClusterFlag to ActivitySummary struct, submitActivitySummary function, event, and metricNames()",
+        "Update BaseActivityModule.evaluate() to apply a 2000-point penalty when sybilClusterFlag is true",
+        "Integrate sybil detection into scripts/keeper-rpc.ts so activity summaries include the flag before submission",
+        "Update TypeScript side (src/skill/eip712.ts, keeper scripts) to include the new field in typehash, ABI tuple, and evidence hash computation",
+        "Add vitest unit tests for the cluster detection logic in test/skill/sybil-detector.test.ts",
+        "Update Foundry tests in test/foundry/BaseActivityModule.t.sol to cover the new flag and penalty",
+        "All quality checks pass: pnpm tsc --noEmit, npx vitest run, forge test"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "Corresponds to P1-03 in task-breakdown.md"
     }
   ]
 }
