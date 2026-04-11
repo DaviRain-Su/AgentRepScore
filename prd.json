@@ -29,7 +29,7 @@
       "title": "Expose CLI entry point for Skill commands",
       "description": "Create a lightweight CLI (e.g., using Commander.js) so users can run rep:register, rep:evaluate, rep:query, rep:compare, and rep:modules from the terminal.",
       "priority": 4,
-      "passes": false
+      "passes": true
     },
     {
       "id": "API-002",

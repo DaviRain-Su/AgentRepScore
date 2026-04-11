@@ -48,3 +48,19 @@ Tool: pi
   - `evaluate.ts` and `query.ts` align module breakdown weights by module *name* (not index), so `getModulesWithNames` can safely replace the N+1 weight-gathering loop.
   - The integration test (`test/hardhat/integration.test.ts`) can fail intermittently on live testnet due to state drift (e.g., `ownerOf` revert for a reused agentId); this is unrelated to contract or skill changes.
 ---
+
+## 2026-04-11 22:58 CST - API-001
+Tool: pi
+- Created `src/cli.ts` using Commander.js exposing `register`, `evaluate`, `query`, `compare`, and `modules` subcommands, all outputting JSON to stdout.
+- Created executable `bin/rep.mjs` wrapper that invokes `node --import tsx src/cli.ts` so the CLI works as a proper npm binary entry point.
+- Added `bin` entry and convenience `rep:*` npm scripts to `package.json`.
+- Added `test/skill/cli.test.ts` with 7 unit tests covering argument parsing, required options, JSON output, and error propagation.
+- Verified `pnpm test:all` passes: 23 vitest tests + 77 Foundry tests.
+- Updated root `AGENTS.md` with the CLI entry point pattern.
+- Files changed: `src/cli.ts`, `bin/rep.mjs`, `package.json`, `test/skill/cli.test.ts`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - The CLI must be testable: keep `program` exportable and trigger `parseAsync` only when `isMainModule()` is true (using `realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])`).
+  - Commander.js `exitOverride()` is required in CLI tests to prevent `process.exit()` from terminating the test runner.
+  - Missing required options in Commander throw via `exitOverride` as a generic error; test for rejection rather than a specific substring.
+  - `bin/rep.mjs` spawns a fresh Node process with `--import tsx` to handle `.ts` imports without pre-compilation, since the project uses `noEmit` in `tsconfig.json`.
+---

@@ -3,11 +3,19 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "bin": {
+    "rep": "./bin/rep.mjs"
+  },
   "scripts": {
     "test": "vitest run",
     "test:foundry": "forge test",
     "test:all": "vitest run && forge test",
-    "ci:local": "forge fmt --check && forge build --sizes && forge test -vvv && vitest run"
+    "ci:local": "forge fmt --check && forge build --sizes && forge test -vvv && vitest run",
+    "rep:register": "rep register",
+    "rep:evaluate": "rep evaluate",
+    "rep:query": "rep query",
+    "rep:compare": "rep compare",
+    "rep:modules": "rep modules"
   },
   "keywords": [],
   "author": "",
@@ -26,5 +34,8 @@
     "viem": "^2.47.12",
     "vitest": "^4.1.4"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "commander": "^14.0.3"
+  }
 }
