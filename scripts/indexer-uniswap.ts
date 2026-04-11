@@ -80,6 +80,7 @@ const submitSwapSummaryAbi = [
           { internalType: "uint256", name: "avgSlippageBps", type: "uint256" },
           { internalType: "uint256", name: "feeToPnlRatioBps", type: "uint256" },
           { internalType: "bool", name: "washTradeFlag", type: "bool" },
+          { internalType: "bool", name: "counterpartyConcentrationFlag", type: "bool" },
           { internalType: "uint256", name: "timestamp", type: "uint256" },
           { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
         ],
@@ -114,6 +115,7 @@ export interface SwapSummary {
   avgSlippageBps: bigint;
   feeToPnlRatioBps: bigint;
   washTradeFlag: boolean;
+  counterpartyConcentrationFlag: boolean;
   timestamp: bigint;
   evidenceHash: `0x${string}`;
 }
@@ -179,6 +181,32 @@ export async function fetchSwapEvents(
   return events;
 }
 
+export function detectCounterpartyConcentration(events: SwapEvent[], wallet: Address): boolean {
+  if (events.length === 0) return false;
+
+  const walletLower = wallet.toLowerCase();
+  const counterparties = new Map<string, number>();
+
+  for (const evt of events) {
+    const senderLower = evt.sender.toLowerCase();
+    const recipientLower = evt.recipient.toLowerCase();
+    const counterparty = senderLower === walletLower ? recipientLower : senderLower;
+    counterparties.set(counterparty, (counterparties.get(counterparty) || 0) + 1);
+  }
+
+  const totalSwaps = events.length;
+  const uniqueCounterparties = counterparties.size;
+
+  if (uniqueCounterparties <= 2) {
+    // If ≤2 unique counterparties, check if they represent >70% of swaps
+    const sortedCounts = Array.from(counterparties.values()).sort((a, b) => b - a);
+    const topTwoCount = sortedCounts.slice(0, 2).reduce((sum, c) => sum + c, 0);
+    return (topTwoCount * 100) / totalSwaps > 70;
+  }
+
+  return false;
+}
+
 export function detectWashTrade(events: SwapEvent[]): boolean {
   const sorted = [...events].sort((a, b) => Number(a.blockNumber - b.blockNumber));
   for (let i = 0; i < sorted.length; i++) {
@@ -237,11 +265,12 @@ export function buildSwapSummary(
 
   const avgSlippageBps = swapCount > 0n ? totalSlippageBps / swapCount : 0n;
   const washTradeFlag = detectWashTrade(walletEvents);
+  const counterpartyConcentrationFlag = detectCounterpartyConcentration(walletEvents, wallet);
   const now = BigInt(Math.floor(Date.now() / 1000));
 
   const evidenceHash = keccak256(
     toBytes(
-      `uniswap-indexer:${walletLower}:${swapCount}:${volumeUSD}:${netPnL}:${avgSlippageBps}:${washTradeFlag}:${now}`
+      `uniswap-indexer:${walletLower}:${swapCount}:${volumeUSD}:${netPnL}:${avgSlippageBps}:${washTradeFlag}:${counterpartyConcentrationFlag}:${now}`
     )
   );
 
@@ -252,6 +281,7 @@ export function buildSwapSummary(
     avgSlippageBps,
     feeToPnlRatioBps: 0n,
     washTradeFlag,
+    counterpartyConcentrationFlag,
     timestamp: now,
     evidenceHash,
   };
@@ -363,8 +393,9 @@ async function main() {
   console.log(`  volumeUSD:        ${summary.volumeUSD}`);
   console.log(`  netPnL:           ${summary.netPnL}`);
   console.log(`  avgSlippageBps:   ${summary.avgSlippageBps}`);
-  console.log(`  washTradeFlag:    ${summary.washTradeFlag}`);
-  console.log(`  evidenceHash:     ${summary.evidenceHash}`);
+  console.log(`  washTradeFlag:                ${summary.washTradeFlag}`);
+  console.log(`  counterpartyConcentrationFlag: ${summary.counterpartyConcentrationFlag}`);
+  console.log(`  evidenceHash:                  ${summary.evidenceHash}`);
   console.log(`  timestamp:        ${summary.timestamp}`);
 
   if (dryRun || summary.swapCount === 0n) {

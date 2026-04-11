@@ -19,6 +19,7 @@ contract UniswapScoreModule is IScoreModule {
         uint256 avgSlippageBps;
         uint256 feeToPnlRatioBps;
         bool washTradeFlag;
+        bool counterpartyConcentrationFlag;
         uint256 timestamp;
         bytes32 evidenceHash;
     }
@@ -31,6 +32,7 @@ contract UniswapScoreModule is IScoreModule {
         uint256 volumeUSD,
         int256 netPnL,
         bool washTradeFlag,
+        bool counterpartyConcentrationFlag,
         bytes32 evidenceHash
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
@@ -89,7 +91,13 @@ contract UniswapScoreModule is IScoreModule {
     function submitSwapSummary(address wallet, SwapSummary calldata summary) external onlyKeeper whenNotPaused {
         latestSwapSummary[wallet] = summary;
         emit SwapSummarySubmitted(
-            wallet, summary.swapCount, summary.volumeUSD, summary.netPnL, summary.washTradeFlag, summary.evidenceHash
+            wallet,
+            summary.swapCount,
+            summary.volumeUSD,
+            summary.netPnL,
+            summary.washTradeFlag,
+            summary.counterpartyConcentrationFlag,
+            summary.evidenceHash
         );
     }
 
@@ -102,12 +110,13 @@ contract UniswapScoreModule is IScoreModule {
     }
 
     function metricNames() external pure override returns (string[] memory) {
-        string[] memory metrics = new string[](5);
+        string[] memory metrics = new string[](6);
         metrics[0] = "swapCount";
         metrics[1] = "volumeUSD";
         metrics[2] = "netPnL";
         metrics[3] = "avgSlippageBps";
         metrics[4] = "washTradeFlag";
+        metrics[5] = "counterpartyConcentrationFlag";
         return metrics;
     }
 
@@ -151,6 +160,10 @@ contract UniswapScoreModule is IScoreModule {
 
         if (s.washTradeFlag) {
             score -= 3000;
+        }
+
+        if (s.counterpartyConcentrationFlag) {
+            score -= 1500;
         }
 
         // Anti-gaming: fee-to-PnL ratio heuristic

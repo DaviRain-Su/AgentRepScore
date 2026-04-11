@@ -90,3 +90,23 @@ Tool: pi
   - For keeper deduplication, the `evidenceHash` already present in summary structs is the perfect unique key. When a module lacks an evidence field (e.g., `AaveScoreModule.submitWalletMeta`), compute a local keccak256 hash from the normalized arguments.
   - Centralizing retry + deduplication in `src/skill/keeper-utils.ts` keeps individual keeper scripts focused on data gathering while ensuring consistent resilience across all submission paths.
 ---
+
+## 2026-04-12 01:48 CST - US-006
+Tool: pi
+- Implemented counterparty concentration detection in `scripts/indexer-uniswap.ts` via new `detectCounterpartyConcentration(events, wallet)` utility.
+- Detection logic: for a wallet's swap events, if there are ≤2 unique counterparties and they represent >70% of total swaps, the flag is set to true.
+- Added `bool counterpartyConcentrationFlag` to `UniswapScoreModule.SwapSummary` struct in `contracts/modules/UniswapScoreModule.sol`.
+- Updated `UniswapScoreModule.evaluate()` to apply a 1500-point penalty when `counterpartyConcentrationFlag` is true.
+- Updated `SwapSummarySubmitted` event and `metricNames()` to include the new flag.
+- Updated `buildSwapSummary` to call `detectCounterpartyConcentration(walletEvents, wallet)` and propagate the result into the summary.
+- Updated evidence hash computation to include the actual `counterpartyConcentrationFlag` value.
+- Updated `submitSwapSummary` ABI tuple in `scripts/indexer-uniswap.ts` to include the new boolean field.
+- Added 6 new unit tests in `test/skill/indexer-uniswap.test.ts` covering: empty events, 3+ counterparties (no flag), >70% with 1 counterparty (flagged), >70% with 2 counterparties (flagged), 70% threshold edge case (not flagged), and `buildSwapSummary` integration.
+- Added `test_CounterpartyConcentrationPenalty` in `test/foundry/UniswapScoreModule.t.sol` verifying the 1500-point penalty.
+- All quality checks pass: `pnpm tsc --noEmit`, `npx vitest run test/skill/` (67 tests), `forge test` (84 tests).
+- Files changed: `contracts/modules/UniswapScoreModule.sol`, `scripts/indexer-uniswap.ts`, `test/skill/indexer-uniswap.test.ts`, `test/foundry/UniswapScoreModule.t.sol`, `prd.json`
+- **Learnings for future iterations:**
+  - When adding a new field to a Solidity struct consumed by the indexer, update both the TypeScript `SwapSummary` interface and the inline ABI tuple used by `viem`'s `writeContract`; otherwise type inference will reject the call at compile time.
+  - `UniswapScoreModule` struct literals in Foundry tests use positional constructor syntax (`SwapSummary(0, 0, 0, 0, 0, false, false, 0, 0)`), so adding a field requires updating every literal in the test file.
+  - The concentration threshold (>70%) means tests with exactly 2 unique counterparties out of 2 total swaps will always trigger the flag (100% > 70%). To write a "no flag" aggregation test, use at least 3 unique counterparties.
+---

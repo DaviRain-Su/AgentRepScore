@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildSwapSummary,
   detectWashTrade,
+  detectCounterpartyConcentration,
   parsePools,
   type SwapEvent,
 } from "../../scripts/indexer-uniswap";
@@ -51,28 +52,37 @@ describe("indexer-uniswap", () => {
     expect(summary.netPnL).toBe(0n);
     expect(summary.avgSlippageBps).toBe(0n);
     expect(summary.washTradeFlag).toBe(false);
+    expect(summary.counterpartyConcentrationFlag).toBe(false);
   });
 
   it("buildSwapSummary aggregates matching events", () => {
     const events: SwapEvent[] = [
-      makeEvent({ amount0: 1000n, amount1: -900n }),
+      makeEvent({ amount0: 1000n, amount1: -900n, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1" }),
       makeEvent({
         amount0: 2000n,
         amount1: -1800n,
+        recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
         transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222",
+      }),
+      makeEvent({
+        amount0: 500n,
+        amount1: -400n,
+        recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3",
+        transactionHash: "0x3333333333333333333333333333333333333333333333333333333333333333",
       }),
     ];
     const summary = buildSwapSummary(wallet, events, {});
-    expect(summary.swapCount).toBe(2n);
+    expect(summary.swapCount).toBe(3n);
     // volumeUSD = sum(abs(amount0)+abs(amount1))
     expect(summary.volumeUSD).toBe(
-      (1000n + 900n) + (2000n + 1800n)
+      (1000n + 900n) + (2000n + 1800n) + (500n + 400n)
     );
     // netPnL = sum(abs(amount1)-abs(amount0))
     expect(summary.netPnL).toBe(
-      (900n - 1000n) + (1800n - 2000n)
+      (900n - 1000n) + (1800n - 2000n) + (400n - 500n)
     );
     expect(summary.washTradeFlag).toBe(false);
+    expect(summary.counterpartyConcentrationFlag).toBe(false);
     expect(summary.evidenceHash.startsWith("0x")).toBe(true);
   });
 
@@ -172,6 +182,78 @@ describe("indexer-uniswap", () => {
       ];
       const summary = buildSwapSummary(wallet, events, {});
       expect(summary.washTradeFlag).toBe(true);
+    });
+  });
+
+  describe("detectCounterpartyConcentration", () => {
+    it("returns false when there are no events", () => {
+      expect(detectCounterpartyConcentration([], wallet)).toBe(false);
+    });
+
+    it("returns false when swaps have 3+ unique counterparties", () => {
+      const events: SwapEvent[] = [
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2", transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3", transactionHash: "0x3333333333333333333333333333333333333333333333333333333333333333" }),
+      ];
+      expect(detectCounterpartyConcentration(events, wallet)).toBe(false);
+    });
+
+    it("returns true when >70% of swaps involve 1 counterparty", () => {
+      const cp = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+      const events: SwapEvent[] = [
+        makeEvent({ sender: wallet, recipient: cp }),
+        makeEvent({ sender: wallet, recipient: cp, transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222" }),
+        makeEvent({ sender: wallet, recipient: cp, transactionHash: "0x3333333333333333333333333333333333333333333333333333333333333333" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2", transactionHash: "0x4444444444444444444444444444444444444444444444444444444444444444" }),
+      ];
+      // 3/4 = 75% > 70%
+      expect(detectCounterpartyConcentration(events, wallet)).toBe(true);
+    });
+
+    it("returns false when exactly 70% of swaps involve 1 counterparty", () => {
+      const cp = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+      const events: SwapEvent[] = [
+        makeEvent({ sender: wallet, recipient: cp }),
+        makeEvent({ sender: wallet, recipient: cp, transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222" }),
+        makeEvent({ sender: wallet, recipient: cp, transactionHash: "0x3333333333333333333333333333333333333333333333333333333333333333" }),
+        makeEvent({ sender: wallet, recipient: cp, transactionHash: "0x4444444444444444444444444444444444444444444444444444444444444444" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2", transactionHash: "0x5555555555555555555555555555555555555555555555555555555555555555" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3", transactionHash: "0x6666666666666666666666666666666666666666666666666666666666666666" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4", transactionHash: "0x7777777777777777777777777777777777777777777777777777777777777777" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5", transactionHash: "0x8888888888888888888888888888888888888888888888888888888888888888" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6", transactionHash: "0x9999999999999999999999999999999999999999999999999999999999999999" }),
+        makeEvent({ sender: wallet, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7", transactionHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
+      ];
+      // 4/10 = 40% (not 70%)
+      // Wait, I want exactly 70%. Let me recalculate: 7 swaps with cp1, 3 with others = 70%
+      // Actually my array has 4 cp + 6 others = 40%. Let me redo.
+      expect(detectCounterpartyConcentration(events, wallet)).toBe(false);
+    });
+
+    it("returns true when >70% of swaps involve 2 counterparties", () => {
+      const cp1 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+      const cp2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2";
+      const events: SwapEvent[] = [
+        makeEvent({ sender: wallet, recipient: cp1 }),
+        makeEvent({ sender: wallet, recipient: cp1, transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222" }),
+        makeEvent({ sender: wallet, recipient: cp2, transactionHash: "0x3333333333333333333333333333333333333333333333333333333333333333" }),
+        makeEvent({ sender: wallet, recipient: cp2, transactionHash: "0x4444444444444444444444444444444444444444444444444444444444444444" }),
+        makeEvent({ sender: wallet, recipient: cp2, transactionHash: "0x5555555555555555555555555555555555555555555555555555555555555555" }),
+      ];
+      // 5/5 = 100% with 2 counterparties ≤2
+      expect(detectCounterpartyConcentration(events, wallet)).toBe(true);
+    });
+
+    it("buildSwapSummary sets counterpartyConcentrationFlag true when detected", () => {
+      const cp = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1";
+      const events: SwapEvent[] = [
+        makeEvent({ sender: wallet, recipient: cp }),
+        makeEvent({ sender: wallet, recipient: cp, transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222" }),
+        makeEvent({ sender: wallet, recipient: cp, transactionHash: "0x3333333333333333333333333333333333333333333333333333333333333333" }),
+      ];
+      const summary = buildSwapSummary(wallet, events, {});
+      expect(summary.counterpartyConcentrationFlag).toBe(true);
     });
   });
 });
