@@ -10,9 +10,9 @@ enabled = true
 port = 9090
 
 [[chains]]
-name = "xlayer"
-chain_id = 196
-rpc_url = "https://xlayerrpc.okx.com"
+name = "xlayer-testnet"
+chain_id = 195
+rpc_url = "https://testrpc.xlayer.tech"
 pg_url = "postgres://tidx:tidx@postgres:5432/tidx"
 backfill = true
 batch_size = 100

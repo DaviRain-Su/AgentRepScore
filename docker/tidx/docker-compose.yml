@@ -39,6 +39,7 @@ services:
 
   tidx:
     image: ghcr.io/tempoxyz/tidx:latest
+    platform: linux/amd64
     command:
       - up
       - --config
