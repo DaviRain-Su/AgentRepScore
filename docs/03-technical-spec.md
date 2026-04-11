@@ -692,7 +692,8 @@ function evaluate(address wallet)
 
 export interface RegisterInput {
   wallet: `0x${string}`;
-  capabilities: string[];
+  /** @deprecated 当前实现未使用 capabilities */
+  capabilities?: string[];
   uri: string;
 }
 
@@ -870,32 +871,53 @@ AAVE_POOL=0x...
 
 ### 8.1 单元测试（Foundry）
 
-- `AgentRepValidator.t.sol`：模块注册、evaluateAgent 积分聚合、冷却期
-- `AaveScoreModule.t.sol`：mock Aave Pool，测试健康因子、利用率、清算场景
-- `UniswapScoreModule.t.sol`： keeper 提交流程、刷量标记、分数边界
+- `AgentRepValidator.t.sol`：模块注册、evaluateAgent 积分聚合、冷却期、权重校验、访问控制、治理转移
+- `AaveScoreModule.t.sol`：mock Aave Pool，测试健康因子、利用率、资产数、清算场景
+- `UniswapScoreModule.t.sol`：keeper 提交流程、刷量标记、feeToPnlRatio 惩罚、分数边界
 - `BaseActivityModule.t.sol`：钱包年龄、交互方数量、不活跃惩罚
+- `AgentRepValidator.invariants.t.sol`：不变量测试——总活跃权重永远 ≤ 10000、评估分数永远 ∈ [-10000, 10000]
 
-### 8.2 集成测试（Hardhat + TypeScript）
+### 8.2 Fuzz 测试（Foundry）
+
+- `testFuzz_TotalWeightNeverExceeds10000`：任意权重组合注册时总权重不溢出
+- `testFuzz_EvaluatedScoreWithinBounds`：任意模块分数组合时最终分数在合法边界内
+
+### 8.3 集成测试（Hardhat + TypeScript）
 
 - 完整流程：注册 ERC-8004 身份 → evaluateAgent → 查询 Reputation Registry 反馈
 - Skill 命令端到端：evaluate、query、compare、modules
 
-### 8.3 测试覆盖率目标
+### 8.4 TypeScript 单元测试（Vitest）
+
+- `test/skill/score-decay.test.ts`：时间衰减计算、信任等级分类
+- `test/skill/compare.test.ts`：Promise.allSettled 容错、排序逻辑
+
+### 8.5 测试覆盖率目标
 
 - 合约行覆盖率：≥ 80%
 - 关键路径（evaluateAgent、模块注册、分数聚合）：100%
+- Foundry fuzz：每个 fuzz 函数 ≥ 256 runs
+- Foundry invariant：每个 invariant ≥ 128,000 calls
 
 ---
 
 ## 9. 安全与 Gas 优化
 
-### 9.1 安全清单
+### 9.1 安全清单（MVP 已实现 vs Production 待补齐）
 
-- [ ] 所有 `onlyGovernance` 函数正确施加访问控制
-- [ ] evaluateAgent 有冷却期，防止 gas 滥用或 spam
-- [ ] 合约对 Aave/Uniswap 仅有 `view` 调用，无资金风险
-- [ ] keeper 签名使用 EIP-712，防止重放攻击
-- [ ] 模块注册代码开源，接受审计
+| 项目 | 状态 | 说明 |
+|------|------|------|
+| `onlyGovernance` 访问控制 | 🟢 已实现 | 模块注册、权重变更等均已保护 |
+| `onlyEvaluator` 访问控制 | 🟢 已实现 | `evaluateAgent` 和 `handleValidationRequest` 限治理或授权 keeper 调用 |
+| ReentrancyGuard | 🟢 已实现 | `evaluateAgent` 和 `handleValidationRequest` 已加 `nonReentrant` |
+| 评估冷却期 | 🟢 已实现 | 默认 1 天，可治理调整 |
+| 权重总和校验 | 🟢 已实现 | `registerModule`、`updateWeight`、`setModuleActive(true)` 均校验 ≤ 10000 |
+| 2-step 治理转移 | 🟢 已实现 | `initiateGovernanceTransfer` + `acceptGovernanceTransfer` |
+| 紧急 Pause | 🔴 未实现 | **P0：** 发现漏洞时无法紧急冻结 |
+| Timelock | 🔴 未实现 | **P0：** 关键操作应延迟生效 |
+| Multisig | 🔴 未实现 | **P0：** governance 仍是单个 EOA |
+| 第三方安全审计 | 🔴 未实现 | **P1：** 正式上线前必须完成 |
+| keeper 签名（EIP-712） | 🟡 部分 | `register.ts` 中 EIP-712 用于 `setAgentWallet`，但 keeper 提交摘要尚未要求链下签名验证 |
 
 ### 9.2 Gas 优化
 
@@ -947,3 +969,4 @@ library ScoreConstants {
 | v1.0 | 2026-04-11 | 从架构设计拆分出独立技术规格文档 |
 | v2.0 | 2026-04-11 | 完善接口定义、合约伪代码、部署顺序、测试策略 |
 | v2.1 | 2026-04-11 | 修正 ERC-8004 ABI、增加 keeper 接口与自定义错误、移除风险模块权重缺口 |
+| v2.2 | 2026-04-11 | 基于 Hackathon MVP 完成后的差距分析更新：标记 ReentrancyGuard/onlyEvaluator/治理转移/validationRegistry 调用为已实现；标记 Merkle 证明/Pausable/Timelock/Multisig 为未实现；补充 fuzz/invariant/vitest 测试策略

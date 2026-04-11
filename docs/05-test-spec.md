@@ -1,8 +1,8 @@
 # AgentRepScore — 测试规格 (Phase 5)
 
-> 版本：v2.1
+> 版本：v2.2
 > 日期：2026-04-11
-> 目标：Hackathon MVP 合约与 Skill 的全覆盖测试策略
+> 目标：Hackathon MVP 完成后的测试状态更新，标记已实现测试与 Production 待补齐项
 
 ---
 
@@ -11,20 +11,25 @@
 1. **合约优先**：核心评分逻辑和资金安全相关代码在 Foundry 中 100% 覆盖。
 2. **集成其次**：链下 Skill 与链上合约的交互流在 Hardhat + TypeScript 中验证。
 3. **边界优先**：针对分数边界、冷却期、访问控制、数据过期等边界条件做重点测试。
-4. **MVP 务实**：不做 fuzz（赛后完善），但每个 `if` 分支至少有一个测试用例。
+4. **自动化测试持续扩展**：MVP 阶段已实现 fuzz 与 invariant 测试，后续应保持覆盖。
 
 ---
 
 ## 2. 测试矩阵
 
-| 组件 | 测试框架 | 测试文件 | 覆盖目标 |
-|------|----------|----------|----------|
-| AgentRepValidator | Foundry | `AgentRepValidator.t.sol` | 模块管理、加权聚合、冷却期、ERC-8004 交互 |
-| AaveScoreModule | Foundry | `AaveScoreModule.t.sol` | 健康因子分支、利用率、资产数、清算扣分 |
-| UniswapScoreModule | Foundry | `UniswapScoreModule.t.sol` | keeper 提交流程、刷量标记、数据过期、分数边界 |
-| BaseActivityModule | Foundry | `BaseActivityModule.t.sol` | 钱包年龄、交易数、交互方、不活跃惩罚 |
-| 端到端集成 | Hardhat + TS | `integration.test.ts` | register → evaluate → query → compare 完整流 |
-| Skill 命令 | Jest/Vitest | `commands.test.ts` | 输入输出格式、衰减计算、信任等级 |
+| 组件 | 测试框架 | 测试文件 | 覆盖目标 | 状态 |
+|------|----------|----------|----------|------|
+| AgentRepValidator 单元 | Foundry | `AgentRepValidator.t.sol` | 模块管理、加权聚合、冷却期、ERC-8004 交互、访问控制、治理转移 | 🟢 已实现 |
+| AgentRepValidator Fuzz | Foundry | `AgentRepValidator.t.sol` | 任意权重组合不溢出、任意模块分数边界合法 | 🟢 已实现（256 runs） |
+| AgentRepValidator Invariant | Foundry | `AgentRepValidator.invariants.t.sol` | 总活跃权重 ≤ 10000、任意评估分数 ∈ [-10000, 10000] | 🟢 已实现（128k calls） |
+| AaveScoreModule | Foundry | `AaveScoreModule.t.sol` | 健康因子分支、利用率、资产数、清算扣分、治理转移 | 🟢 已实现 |
+| UniswapScoreModule | Foundry | `UniswapScoreModule.t.sol` | keeper 提交流程、刷量标记、数据过期、分数边界 | 🟢 已实现 |
+| BaseActivityModule | Foundry | `BaseActivityModule.t.sol` | 钱包年龄、交易数、交互方、不活跃惩罚 | 🟢 已实现 |
+| 端到端集成 | Hardhat + TS | `integration.test.ts` | register → evaluate → query → compare 完整流 | 🟢 已实现 |
+| Skill 命令（衰减/信任等级） | Vitest | `test/skill/score-decay.test.ts` | 时间衰减计算、信任等级边界分类 | 🟢 已实现 |
+| Skill 命令（compare 容错） | Vitest | `test/skill/compare.test.ts` | Promise.allSettled 容错、排序逻辑 | 🟢 已实现 |
+| Keeper 自动化测试 | — | — | 自动索引器提交摘要的正确性、重试逻辑 | 🔴 未实现 |
+| 反作弊模拟测试 | — | — | 构造刷量地址并验证评分降低的端到端自动化 | 🟡 部分（手动演示可行，无自动化） |
 
 ---
 
@@ -40,7 +45,7 @@
 | VAL-002 | 非治理地址注册模块应失败 | 合约已部署 | `registerModule(...)` from `address(0x1234)` | revert `UnauthorizedGovernance` |
 | VAL-003 | 更新权重 | aaveModule 已注册 | `updateWeight(0, 4000)` | `modules[0].weight == 4000` |
 | VAL-004 | 启停模块 | aaveModule 已注册 | `setModuleActive(0, false)` | `modules[0].active == false` |
-| VAL-005 | 权重总和溢出检查（可选） | 多个模块已注册 | 注册第 4 个模块使总和 > 10000 | revert `TotalWeightExceeded`（如实现） |
+| VAL-005 | 权重总和溢出检查 | 多个模块已注册 | 注册第 4 个模块使总和 > 10000 | revert `TotalWeightExceeded` |
 
 #### 3.1.2 evaluateAgent 核心逻辑
 
@@ -60,9 +65,15 @@
 | VAL-021 | 读取各模块分数 | VAL-010 已执行 | `getModuleScores(agentId)` | 返回 3 个模块的名称、分数、confidence、evidence |
 | VAL-022 | 设置冷却期 | 合约已部署 | `setCooldown(12 hours)` from governance | `evaluationCooldown == 12 hours` |
 | VAL-023 | 非治理地址设置冷却期应失败 | 合约已部署 | `setCooldown(...)` from `address(0x1234)` | revert `UnauthorizedGovernance` |
+| VAL-024 | evaluateAgent 访问控制 | 合约已部署，非 evaluator 地址 | `evaluateAgent(agentId)` from `address(0xdead)` | revert `UnauthorizedEvaluator` |
+| VAL-025 | handleValidationRequest 访问控制 | 合约已部署，非 evaluator 地址 | `handleValidationRequest(hash, agentId)` from `address(0xdead)` | revert `UnauthorizedEvaluator` |
+| VAL-026 | 设置 evaluator | governance 地址 | `setEvaluator(keeper, true)` | `evaluators(keeper) == true` |
+| VAL-027 | 治理转移两步确认 | governance 地址发起 | `initiateGovernanceTransfer(newGov)` + `acceptGovernanceTransfer()` from newGov | `governance == newGov`，`pendingGovernance == address(0)` |
 | VAL-030 | handleValidationRequest 触发 evaluateAgent | mock 模块已注册 | `handleValidationRequest(hash, agentId)` | `validationHandled[hash] == true`；mock ReputationRegistry 收到 giveFeedback；事件 `ValidationResponded` 抛出 |
 | VAL-031 | handleValidationRequest 重复调用应失败 | VAL-030 已执行 | 再次调用相同 `requestHash` | revert `ValidationAlreadyHandled` |
+| VAL-032 | handleValidationRequest 校验 registry 存在性 | validationRegistry 已配置且 requestHash 不存在 | `handleValidationRequest(hash, agentId)` | revert `ValidationRequestNotFound` |
 | VAL-040 | 加权聚合产生负总分 | 3 个 mock 模块均返回负分 | `evaluateAgent(agentId)` | totalScore < 0 且等于加权平均值；giveFeedback 的 value 为负 int128 |
+| VAL-050 | getModuleScores 返回实际 confidence | mock 模块 2 返回 confidence=50 | `getModuleScores(agentId)` | confidences[1] == 50（非硬编码 100） |
 
 ---
 
