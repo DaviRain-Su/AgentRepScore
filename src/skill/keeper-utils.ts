@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import type { Address } from "viem";
+import { logger } from "./logger.ts";
 
 export type KeeperModule = "uniswap" | "activity" | "aave";
 
@@ -112,9 +113,7 @@ export async function submitWithRetry<T>(
       lastError = err;
       if (attempt === maxRetries) break;
       const delayMs = 1000 * 2 ** (attempt - 1);
-      console.warn(
-        `[${label}] Attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms...`
-      );
+      logger.warn(`[${label}] Attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms...`);
       await sleep(delayMs);
     }
   }

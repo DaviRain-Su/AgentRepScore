@@ -20,6 +20,7 @@ import { type Address } from "viem";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as dotenv from "dotenv";
+import { logger } from "../src/skill/logger.ts";
 
 dotenv.config();
 
@@ -121,12 +122,12 @@ async function main() {
   // Then schedule
   setInterval(() => {
     runRound(wallets).catch((err) => {
-      console.error("[daemon] Uncaught round error:", err);
+      logger.error("[daemon] Uncaught round error", { err });
     });
   }, intervalMs);
 
   // Keep process alive
-  console.log("[daemon] Scheduled. Press Ctrl+C to stop.");
+  logger.info("[daemon] Scheduled. Press Ctrl+C to stop.");
 }
 
 function isMainModule() {
@@ -138,7 +139,7 @@ function isMainModule() {
 
 if (isMainModule()) {
   main().catch((err) => {
-    console.error(err);
+    logger.error("[daemon] Fatal error", { err });
     process.exit(1);
   });
 }

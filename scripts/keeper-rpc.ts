@@ -36,6 +36,7 @@ import {
   fetchNonce,
   signActivitySummary,
 } from "../src/skill/eip712.ts";
+import { logger } from "../src/skill/logger.ts";
 
 dotenv.config();
 
@@ -76,7 +77,7 @@ async function fetchActivityData(
   const SCAN_BLOCKS = 50000n; // scan last ~50k blocks
   const startBlock = latestBlock > SCAN_BLOCKS ? latestBlock - SCAN_BLOCKS : 0n;
 
-  console.log(`  Scanning blocks ${startBlock} to ${latestBlock} for wallet activity...`);
+  logger.info(`  Scanning blocks ${startBlock} to ${latestBlock} for wallet activity...`);
 
   let firstTxTimestamp = 0n;
   let lastTxTimestamp = 0n;
@@ -137,7 +138,7 @@ async function fetchActivityData(
       }
     } catch {
       // Some RPCs don't support wide block ranges, narrow down
-      console.log(`  Warning: getLogs failed for range ${from}-${to}, skipping...`);
+      logger.warn(`  Warning: getLogs failed for range ${from}-${to}, skipping...`);
     }
   }
 
@@ -238,7 +239,7 @@ const baseModuleAbi = [
 ] as const;
 
 function printUsage() {
-  console.log(`
+  logger.info(`
 Usage:
   npx ts-node scripts/keeper-rpc.ts --wallet=0x... [--dry-run]
 
@@ -268,17 +269,17 @@ async function main() {
   }
 
   if (!PRIVATE_KEY) {
-    console.error("Error: PRIVATE_KEY not set");
+    logger.error("Error: PRIVATE_KEY not set");
     process.exit(1);
   }
   if (!BASE_MODULE) {
-    console.error("Error: BASE_MODULE not set");
+    logger.error("Error: BASE_MODULE not set");
     process.exit(1);
   }
 
   const walletArg = process.argv.find((a) => a.startsWith("--wallet="));
   if (!walletArg) {
-    console.error("Error: Missing --wallet argument");
+    logger.error("Error: Missing --wallet argument");
     printUsage();
     process.exit(1);
   }
@@ -291,22 +292,22 @@ async function main() {
     transport: http(RPC_URL),
   });
 
-  console.log(`Fetching activity data for ${wallet} from X Layer testnet RPC...`);
+  logger.info(`Fetching activity data for ${wallet} from X Layer testnet RPC...`);
 
   const activity = await fetchActivityData(publicClient, wallet);
 
-  console.log("\n--- Activity Data ---");
-  console.log(`  txCount:              ${activity.txCount}`);
-  console.log(
+  logger.info("--- Activity Data ---");
+  logger.info(`  txCount:              ${activity.txCount}`);
+  logger.info(
     `  firstTxTimestamp:     ${activity.firstTxTimestamp} (${activity.firstTxTimestamp > 0n ? new Date(Number(activity.firstTxTimestamp) * 1000).toISOString() : "N/A"})`
   );
-  console.log(
+  logger.info(
     `  lastTxTimestamp:      ${activity.lastTxTimestamp} (${activity.lastTxTimestamp > 0n ? new Date(Number(activity.lastTxTimestamp) * 1000).toISOString() : "N/A"})`
   );
-  console.log(`  uniqueCounterparties: ${activity.uniqueCounterparties}`);
+  logger.info(`  uniqueCounterparties: ${activity.uniqueCounterparties}`);
 
   if (activity.txCount === 0n) {
-    console.log("\nNo transactions found for this wallet. Nothing to submit.");
+    logger.info("No transactions found for this wallet. Nothing to submit.");
     process.exit(0);
   }
 
@@ -326,23 +327,22 @@ async function main() {
     evidenceHash,
   };
 
-  console.log(`  evidenceHash:         ${evidenceHash}`);
-  console.log(`  timestamp:            ${now} (${new Date(Number(now) * 1000).toISOString()})`);
+  logger.info(`  evidenceHash:         ${evidenceHash}`);
+  logger.info(`  timestamp:            ${now} (${new Date(Number(now) * 1000).toISOString()})`);
 
   if (dryRun) {
-    console.log("\n[DRY RUN] Skipping on-chain submission.");
-    console.log("Summary that would be submitted:");
-    console.log(JSON.stringify(summary, (_, v) => typeof v === "bigint" ? v.toString() : v, 2));
+    logger.info("[DRY RUN] Skipping on-chain submission.");
+    logger.info("Summary that would be submitted:", { summary: JSON.stringify(summary, (_, v) => typeof v === "bigint" ? v.toString() : v, 2) });
     process.exit(0);
   }
 
   const state = loadKeeperState();
   if (isAlreadySubmitted(state, "activity", wallet, evidenceHash)) {
-    console.log("Activity summary already submitted for this wallet/evidence. Skipping.");
+    logger.info("Activity summary already submitted for this wallet/evidence. Skipping.");
     process.exit(0);
   }
 
-  console.log("\nSubmitting to BaseActivityModule...");
+  logger.info("Submitting to BaseActivityModule...");
 
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
   const walletClient = createWalletClient({
@@ -362,7 +362,7 @@ async function main() {
         functionName: "submitActivitySummary",
         args: [wallet, summary, signature],
       });
-      console.log(`Transaction submitted: ${txHash}`);
+      logger.info(`Transaction submitted: ${txHash}`);
       return publicClient.waitForTransactionReceipt({
         hash: txHash,
         timeout: 60_000,
@@ -372,11 +372,11 @@ async function main() {
   );
 
   if (receipt.status === "success") {
-    console.log(`Activity summary submitted successfully (block ${receipt.blockNumber})`);
+    logger.info(`Activity summary submitted successfully (block ${receipt.blockNumber})`);
     const newState = recordSubmission(state, "activity", wallet, evidenceHash, receipt.blockNumber);
     saveKeeperState(newState);
   } else {
-    console.error("Transaction reverted!");
+    logger.error("Transaction reverted!");
     process.exit(1);
   }
 }
@@ -390,7 +390,7 @@ function isMainModule() {
 
 if (isMainModule()) {
   main().catch((err) => {
-    console.error(err);
+    logger.error("Fatal error", { err });
     process.exit(1);
   });
 }

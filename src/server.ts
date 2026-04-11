@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { register, evaluate, query, compare, modules } from "./skill/index.ts";
+import { logger } from "./skill/logger.ts";
 
 const app: express.Application = express();
 app.use(express.json());
@@ -67,6 +68,7 @@ app.get("/modules", async (_req, res, next) => {
 });
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error("HTTP request failed", { err });
   res.status(400).json({ error: err.message });
 });
 
@@ -82,7 +84,7 @@ export { app };
 if (isMainModule()) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
-    console.log(`AgentRepScore API listening on port ${PORT}`);
-    console.log(`Docs available at http://localhost:${PORT}/docs`);
+    logger.info(`AgentRepScore API listening on port ${PORT}`);
+    logger.info(`Docs available at http://localhost:${PORT}/docs`);
   });
 }

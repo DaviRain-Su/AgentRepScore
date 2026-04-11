@@ -141,3 +141,17 @@ Tool: pi
   - Adding many `abi.encode` arguments in a single function easily triggers "Stack too deep" without `via_ir = true`.
   - When a module's `submit*` function gains new parameters (e.g., `timestamp` + `signature` for Aave), update both the Foundry test helpers and the TypeScript inline ABIs in keeper scripts to stay in sync.
 ---
+
+## 2026-04-12 06:35 CST - US-009
+Tool: pi
+- Added structured JSON logging across the skill API and keeper layers.
+- Created `src/skill/logger.ts`, a lightweight logger that outputs newline-delimited JSON with `level`, `message`, `timestamp`, and sanitized `meta` (errors include stack traces).
+- Replaced all operational `console.log` / `console.warn` / `console.error` calls in `src/server.ts`, `src/cli.ts`, `src/skill/keeper-utils.ts`, and all keeper scripts (`keeper-daemon.ts`, `indexer-uniswap.ts`, `keeper-rpc.ts`, `keeper-oklink.ts`, `keeper-aave.ts`).
+- Added `test/skill/logger.test.ts` with 7 unit tests covering JSON output, correct streams (stdout vs stderr), and error serialization with stack traces.
+- All quality checks pass: `pnpm tsc --noEmit`, `npx vitest run test/skill/` (73 tests), `forge test` (91 tests).
+- Files changed: `src/skill/logger.ts`, `src/skill/keeper-utils.ts`, `src/server.ts`, `src/cli.ts`, `scripts/keeper-daemon.ts`, `scripts/indexer-uniswap.ts`, `scripts/keeper-rpc.ts`, `scripts/keeper-oklink.ts`, `scripts/keeper-aave.ts`, `test/skill/logger.test.ts`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - `src/skill/logger.ts` is the canonical logging utility for skill/keeper code. It auto-serializes Error objects in metadata, so always pass errors as `{ err }` instead of formatting strings manually.
+  - Keep `printUsage()` output as plain text via `logger.info()` so CLI help text remains readable, while all operational/diagnostic logs go through the JSON logger.
+  - `console.error(err)` at the top-level script catch block should be replaced with `logger.error("Fatal error", { err })` for consistent structured output.
+---

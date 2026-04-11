@@ -21,6 +21,7 @@ import {
   fetchNonce,
   signWalletMeta,
 } from "../src/skill/eip712.ts";
+import { logger } from "../src/skill/logger.ts";
 
 dotenv.config();
 
@@ -45,7 +46,7 @@ const aaveModuleAbi = [
 ] as const;
 
 function printUsage() {
-  console.log(`
+  logger.info(`
 Usage:
   npx tsx scripts/keeper-aave.ts --wallet=0x... [--liquidation-count=N] [--supplied-asset-count=N] [--dry-run]
 
@@ -70,17 +71,17 @@ async function main() {
   }
 
   if (!PRIVATE_KEY) {
-    console.error("Error: PRIVATE_KEY not set");
+    logger.error("Error: PRIVATE_KEY not set");
     process.exit(1);
   }
   if (!AAVE_MODULE) {
-    console.error("Error: AAVE_MODULE not set");
+    logger.error("Error: AAVE_MODULE not set");
     process.exit(1);
   }
 
   const walletArg = process.argv.find((a) => a.startsWith("--wallet="));
   if (!walletArg) {
-    console.error("Error: Missing --wallet argument");
+    logger.error("Error: Missing --wallet argument");
     printUsage();
     process.exit(1);
   }
@@ -94,12 +95,12 @@ async function main() {
   const liquidationCount = liquidationCountArg ? BigInt(liquidationCountArg.split("=")[1]) : 0n;
   const suppliedAssetCount = suppliedAssetCountArg ? BigInt(suppliedAssetCountArg.split("=")[1]) : 1n;
 
-  console.log(`Submitting Aave wallet meta for ${wallet}...`);
-  console.log(`  liquidationCount:   ${liquidationCount}`);
-  console.log(`  suppliedAssetCount: ${suppliedAssetCount}`);
+  logger.info(`Submitting Aave wallet meta for ${wallet}...`);
+  logger.info(`  liquidationCount:   ${liquidationCount}`);
+  logger.info(`  suppliedAssetCount: ${suppliedAssetCount}`);
 
   if (dryRun) {
-    console.log("\n[DRY RUN] Skipping on-chain submission.");
+    logger.info("[DRY RUN] Skipping on-chain submission.");
     process.exit(0);
   }
 
@@ -112,7 +113,7 @@ async function main() {
 
   const state = loadKeeperState();
   if (isAlreadySubmitted(state, "aave", wallet, evidenceHash)) {
-    console.log("Aave wallet meta already submitted for this wallet/evidence. Skipping.");
+    logger.info("Aave wallet meta already submitted for this wallet/evidence. Skipping.");
     process.exit(0);
   }
 
@@ -139,7 +140,7 @@ async function main() {
         functionName: "submitWalletMeta",
         args: [wallet, liquidationCount, suppliedAssetCount, now, signature],
       });
-      console.log(`Transaction submitted: ${txHash}`);
+      logger.info(`Transaction submitted: ${txHash}`);
       return publicClient.waitForTransactionReceipt({
         hash: txHash,
         timeout: 60_000,
@@ -149,11 +150,11 @@ async function main() {
   );
 
   if (receipt.status === "success") {
-    console.log(`Wallet meta submitted successfully (block ${receipt.blockNumber})`);
+    logger.info(`Wallet meta submitted successfully (block ${receipt.blockNumber})`);
     const newState = recordSubmission(state, "aave", wallet, evidenceHash, receipt.blockNumber);
     saveKeeperState(newState);
   } else {
-    console.error("Transaction reverted!");
+    logger.error("Transaction reverted!");
     process.exit(1);
   }
 }
@@ -167,7 +168,7 @@ function isMainModule() {
 
 if (isMainModule()) {
   main().catch((err) => {
-    console.error(err);
+    logger.error("Fatal error", { err });
     process.exit(1);
   });
 }

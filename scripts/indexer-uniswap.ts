@@ -32,6 +32,7 @@ import {
   fetchNonce,
   signSwapSummary,
 } from "../src/skill/eip712.ts";
+import { logger } from "../src/skill/logger.ts";
 
 dotenv.config();
 
@@ -178,7 +179,7 @@ export async function fetchSwapEvents(
         });
       }
     } catch (err) {
-      console.warn(`  Warning: failed to fetch logs for pool ${pool}: ${err}`);
+      logger.warn(`  Warning: failed to fetch logs for pool ${pool}`, { err });
     }
   }
   // Sort by blockNumber ascending for wash-trade detection
@@ -334,7 +335,7 @@ export async function indexWalletSwaps(
 }
 
 function printUsage() {
-  console.log(`
+  logger.info(`
 Usage:
   npx tsx scripts/indexer-uniswap.ts --wallet=0x... [--from-block=NUMBER] [--to-block=NUMBER] [--dry-run]
 
@@ -362,7 +363,7 @@ async function main() {
 
   const walletArg = process.argv.find((a) => a.startsWith("--wallet="));
   if (!walletArg) {
-    console.error("Error: Missing --wallet argument");
+    logger.error("Error: Missing --wallet argument");
     printUsage();
     process.exit(1);
   }
@@ -371,7 +372,7 @@ async function main() {
 
   const pools = parsePools(POOLS_ENV);
   if (pools.length === 0) {
-    console.error("Error: No Uniswap pools configured. Set UNISWAP_POOLS env var.");
+    logger.error("Error: No Uniswap pools configured. Set UNISWAP_POOLS env var.");
     process.exit(1);
   }
 
@@ -387,51 +388,50 @@ async function main() {
   const fromBlock = fromBlockArg ? BigInt(fromBlockArg.split("=")[1]) : latestBlock - 10000n;
   const toBlock = toBlockArg ? BigInt(toBlockArg.split("=")[1]) : latestBlock;
 
-  console.log(`Indexing Uniswap V3 Swaps for ${wallet}`);
-  console.log(`  Pools: ${pools.join(", ")}`);
-  console.log(`  Blocks: ${fromBlock} -> ${toBlock}`);
+  logger.info(`Indexing Uniswap V3 Swaps for ${wallet}`);
+  logger.info(`  Pools: ${pools.join(", ")}`);
+  logger.info(`  Blocks: ${fromBlock} -> ${toBlock}`);
 
   const summary = await indexWalletSwaps(publicClient, wallet, pools, fromBlock, toBlock);
 
-  console.log("\n--- Swap Summary ---");
-  console.log(`  swapCount:        ${summary.swapCount}`);
-  console.log(`  volumeUSD:        ${summary.volumeUSD}`);
-  console.log(`  netPnL:           ${summary.netPnL}`);
-  console.log(`  avgSlippageBps:   ${summary.avgSlippageBps}`);
-  console.log(`  washTradeFlag:                ${summary.washTradeFlag}`);
-  console.log(`  counterpartyConcentrationFlag: ${summary.counterpartyConcentrationFlag}`);
-  console.log(`  evidenceHash:                  ${summary.evidenceHash}`);
-  console.log(`  timestamp:        ${summary.timestamp}`);
+  logger.info("--- Swap Summary ---");
+  logger.info(`  swapCount:        ${summary.swapCount}`);
+  logger.info(`  volumeUSD:        ${summary.volumeUSD}`);
+  logger.info(`  netPnL:           ${summary.netPnL}`);
+  logger.info(`  avgSlippageBps:   ${summary.avgSlippageBps}`);
+  logger.info(`  washTradeFlag:                ${summary.washTradeFlag}`);
+  logger.info(`  counterpartyConcentrationFlag: ${summary.counterpartyConcentrationFlag}`);
+  logger.info(`  evidenceHash:                  ${summary.evidenceHash}`);
+  logger.info(`  timestamp:        ${summary.timestamp}`);
 
   if (dryRun || summary.swapCount === 0n) {
     if (summary.swapCount === 0n) {
-      console.log("\nNo swap events found for this wallet. Nothing to submit.");
+      logger.info("No swap events found for this wallet. Nothing to submit.");
     } else {
-      console.log("\n[DRY RUN] Skipping on-chain submission.");
+      logger.info("[DRY RUN] Skipping on-chain submission.");
     }
-    console.log(
-      "Summary:",
-      JSON.stringify(summary, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2)
-    );
+    logger.info("Summary:", {
+      summary: JSON.stringify(summary, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2),
+    });
     process.exit(0);
   }
 
   if (!PRIVATE_KEY) {
-    console.error("Error: PRIVATE_KEY not set");
+    logger.error("Error: PRIVATE_KEY not set");
     process.exit(1);
   }
   if (!UNISWAP_MODULE) {
-    console.error("Error: UNISWAP_MODULE not set");
+    logger.error("Error: UNISWAP_MODULE not set");
     process.exit(1);
   }
 
   const state = loadKeeperState();
   if (isAlreadySubmitted(state, "uniswap", wallet, summary.evidenceHash)) {
-    console.log("Swap summary already submitted for this wallet/evidence. Skipping.");
+    logger.info("Swap summary already submitted for this wallet/evidence. Skipping.");
     process.exit(0);
   }
 
-  console.log("\nSubmitting to UniswapScoreModule...");
+  logger.info("Submitting to UniswapScoreModule...");
 
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
   const walletClient = createWalletClient({
@@ -451,7 +451,7 @@ async function main() {
         functionName: "submitSwapSummary",
         args: [wallet, summary, signature],
       });
-      console.log(`Transaction submitted: ${txHash}`);
+      logger.info(`Transaction submitted: ${txHash}`);
       return publicClient.waitForTransactionReceipt({
         hash: txHash,
         timeout: 60_000,
@@ -461,7 +461,7 @@ async function main() {
   );
 
   if (receipt.status === "success") {
-    console.log(`Swap summary submitted successfully (block ${receipt.blockNumber})`);
+    logger.info(`Swap summary submitted successfully (block ${receipt.blockNumber})`);
     const newState = recordSubmission(
       state,
       "uniswap",
@@ -471,7 +471,7 @@ async function main() {
     );
     saveKeeperState(newState);
   } else {
-    console.error("Transaction reverted!");
+    logger.error("Transaction reverted!");
     process.exit(1);
   }
 }
@@ -485,7 +485,7 @@ function isMainModule() {
 
 if (isMainModule()) {
   main().catch((err) => {
-    console.error(err);
+    logger.error("Fatal error", { err });
     process.exit(1);
   });
 }

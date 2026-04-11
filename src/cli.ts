@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { register, evaluate, query, compare, modules } from "./skill/index.ts";
+import { logger } from "./skill/logger.ts";
 
 export const program = new Command();
 
@@ -60,7 +61,7 @@ function isMainModule() {
 
 if (isMainModule()) {
   program.parseAsync(process.argv).catch((err: unknown) => {
-    console.error(err instanceof Error ? err.message : String(err));
+    logger.error("CLI command failed", { err });
     process.exit(1);
   });
 }
