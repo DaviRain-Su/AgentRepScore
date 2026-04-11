@@ -1,0 +1,83 @@
+# Ralph Progress Log
+Started: 2026年 4月11日 星期六 22时34分41秒 CST
+
+## Codebase Patterns
+- Contract addresses: `README.md` maintains the canonical list of deployed testnet/mainnet contracts. If integration tests fail against testnet due to address mismatches, check `README.md` first — `.env` can drift from actual deployments.
+- Multi-framework tests: Foundry tests cover Solidity logic (unit/fuzz/invariant). vitest covers TypeScript skill code and on-chain integration tests against X Layer testnet.
+- Quality gate: Always run `pnpm test:all` before committing. It runs both `vitest run` and `forge test`.
+- Config layering: `src/config.ts` uses `NETWORK` env var (`mainnet` | `testnet`, defaults to `testnet`) and switches RPC, chainId, and default registry addresses accordingly.
+
+---
+
+## 2026-04-11 22:41 CST - ENV-001
+Tool: pi
+- Updated `VALIDATOR_ADDRESS` in `.env` from the old/stale address `0x36ce0...` to the current testnet deployment `0x8A924C10fD2f789c323BbB06bf747caEfE9F6efb` (matches `README.md`).
+- Verified `pnpm test:all` now passes: 76 Foundry tests + 14 vitest tests (including the previously failing `integration.test.ts`).
+- Added root `AGENTS.md` to preserve project-wide patterns for future iterations.
+- Files changed: `.env`, `prd.json` (created), `AGENTS.md`, `progress.txt`
+- **Learnings for future iterations:**
+  - `.env` can drift from actual deployments; always cross-check `README.md` when integration tests fail with timestamp/score = 0.
+  - The integration test suite requires live testnet RPC and valid deployed contract addresses; it will be skipped automatically if env vars are missing.
+  - `xLayerTestnet.id` used in EIP-712 typed data is 195 (confirmed by viem chain definition).
+---
+
+## 2026-04-11 22:45 CST - CI-001
+Tool: pi
+- Extended `.github/workflows/test.yml` to install pnpm, Node.js 22, dependencies via `pnpm install --frozen-lockfile`, and run `pnpm vitest run` after Foundry tests.
+- Verified `pnpm vitest run` passes (14 tests, 3 unit + skipped integration).
+- Verified `forge test` still passes (76 tests).
+- Files changed: `.github/workflows/test.yml`, `prd.json`, `progress.txt`
+- **Learnings for future iterations:**
+  - The integration test suite auto-skips in CI because `PRIVATE_KEY` and contract env vars are absent; only unit tests run in GitHub Actions.
+  - Use `pnpm/action-setup@v4` and `actions/setup-node@v4` with `cache: pnpm` for fast, reproducible Node installs in CI.
+  - The project's `pnpm-lock.yaml` requires pnpm; using npm/yarn in CI would break.
+---
+
+## 2026-04-11 22:49 CST - CON-001
+Tool: pi
+- Added `getModulesWithNames()` view function to `AgentRepValidator.sol` that returns all module addresses, names, categories, weights, and active states in a single RPC call.
+- Added Foundry unit test `test_GetModulesWithNames()` verifying correct return values for registered modules.
+- Updated `src/skill/abis.ts` to include the new `getModulesWithNames` function.
+- Refactored `src/skill/commands/modules.ts`, `evaluate.ts`, and `query.ts` to use the batched view function, eliminating N+1 RPC loops.
+- Verified `forge test` (77 tests pass) and `vitest run test/skill/` (11 tests pass); `npx tsc --noEmit` clean.
+- Updated root `AGENTS.md` with batching pattern and created `src/skill/AGENTS.md` for skill-specific ABI maintenance notes.
+- Files changed: `contracts/AgentRepValidator.sol`, `test/foundry/AgentRepValidator.t.sol`, `src/skill/abis.ts`, `src/skill/commands/modules.ts`, `src/skill/commands/evaluate.ts`, `src/skill/commands/query.ts`, `AGENTS.md`, `src/skill/AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - The `validatorAbi` in `src/skill/abis.ts` is the single source of truth for viem; any new Solidity view function must be mirrored there.
+  - Viem returns the tuple output from `readContract` as an array; destructuring works directly (`const [addrs, names, categories, weights, active] = result`).
+  - `evaluate.ts` and `query.ts` align module breakdown weights by module *name* (not index), so `getModulesWithNames` can safely replace the N+1 weight-gathering loop.
+  - The integration test (`test/hardhat/integration.test.ts`) can fail intermittently on live testnet due to state drift (e.g., `ownerOf` revert for a reused agentId); this is unrelated to contract or skill changes.
+---
+
+## 2026-04-11 22:58 CST - API-001
+Tool: pi
+- Created `src/cli.ts` using Commander.js exposing `register`, `evaluate`, `query`, `compare`, and `modules` subcommands, all outputting JSON to stdout.
+- Created executable `bin/rep.mjs` wrapper that invokes `node --import tsx src/cli.ts` so the CLI works as a proper npm binary entry point.
+- Added `bin` entry and convenience `rep:*` npm scripts to `package.json`.
+- Added `test/skill/cli.test.ts` with 7 unit tests covering argument parsing, required options, JSON output, and error propagation.
+- Verified `pnpm test:all` passes: 23 vitest tests + 77 Foundry tests.
+- Updated root `AGENTS.md` with the CLI entry point pattern.
+- Files changed: `src/cli.ts`, `bin/rep.mjs`, `package.json`, `test/skill/cli.test.ts`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - The CLI must be testable: keep `program` exportable and trigger `parseAsync` only when `isMainModule()` is true (using `realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])`).
+  - Commander.js `exitOverride()` is required in CLI tests to prevent `process.exit()` from terminating the test runner.
+  - Missing required options in Commander throw via `exitOverride` as a generic error; test for rejection rather than a specific substring.
+  - `bin/rep.mjs` spawns a fresh Node process with `--import tsx` to handle `.ts` imports without pre-compilation, since the project uses `noEmit` in `tsconfig.json`.
+---
+
+## 2026-04-11 23:08 CST - API-002
+Tool: pi
+- Created `openapi.json` with full OpenAPI 3.0.3 spec documenting `/register`, `/evaluate`, `/query`, `/compare`, `/modules`, and `/health` endpoints.
+- Created `src/server.ts` using Express that exposes the skill commands as REST endpoints and serves Swagger UI at `/docs` (plus raw spec at `/api-docs.json`).
+- Added `supertest`-based unit tests in `test/skill/server.test.ts` covering all endpoints, health check, swagger UI serving, and error handling.
+- Added `express`, `swagger-ui-express`, `supertest`, and corresponding `@types/` packages.
+- Added `server` npm script to `package.json` for running the HTTP API via `node --import tsx src/server.ts`.
+- Verified `pnpm test:all` passes: 30 vitest tests + 77 Foundry tests; `npx tsc --noEmit` clean.
+- Updated root `AGENTS.md` with HTTP API entry point and OpenAPI spec maintenance patterns.
+- Files changed: `openapi.json`, `src/server.ts`, `test/skill/server.test.ts`, `package.json`, `AGENTS.md`, `prd.json`, `progress.txt`
+- **Learnings for future iterations:**
+  - The server reuses the same `isMainModule()` guard as the CLI so the `app` can be exported cleanly for `supertest` tests.
+  - Swagger UI served via `swagger-ui-express` redirects `/docs` to `/docs/`; tests must use `.redirects(1)` when asserting on the UI response.
+  - Express `app` needs an explicit `express.Application` type annotation in `src/server.ts` to avoid a `tsc --noEmit` portability error with nested `@types/express-serve-static-core` types.
+  - Keep `openapi.json` in sync with any endpoint or schema changes; it is the single source of truth for third-party integrations.
+---

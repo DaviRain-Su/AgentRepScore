@@ -36,7 +36,7 @@
 
 | # | 任务 | 状态 | 说明 | 预估工作量 |
 |---|------|------|------|------------|
-| P0-01 | 实现链下自动索引器服务 | 🔴 未开始 | 持续扫描 X Layer 上的 Uniswap Swap 事件、Aave Liquidation 事件、通用交易活动，生成结构化摘要 | 3-5 天 |
+| P0-01 | 实现链下自动索引器服务 | 🟡 部分 | BaseActivity: `keeper-rpc.ts`（RPC 直接查询）+ `keeper-oklink.ts`（OKX OnchainOS 全量历史）已实现。Uniswap Swap 事件索引未做。尚未变成常驻服务 | 3-5 天 |
 | P0-02 | 索引器自动提交摘要到链上 | 🔴 未开始 | keeper 脚本需要变成常驻服务（cron/worker queue），自动调用 `submitSwapSummary` / `submitActivitySummary` / `submitWalletMeta` | 2-3 天 |
 | P0-03 | 增加提交重试、去重、幂等机制 | 🔴 未开始 | 防止网络波动导致重复提交或漏提交；每个摘要应带 nonce 或基于 block range 去重 | 1-2 天 |
 | P0-04 | Keeper 服务监控与告警 | 🔴 未开始 | 记录最后一次成功提交的 blockNumber/timestamp，异常时告警 | 1 天 |
@@ -45,9 +45,9 @@
 
 | # | 任务 | 状态 | 说明 | 预估工作量 |
 |---|------|------|------|------------|
-| P0-05 | 添加 X Layer 主网支持（chainId 196） | 🔴 未开始 | `src/config.ts`、`register.ts`、`evaluate.ts` 等文件需要支持主网 RPC 和合约地址切换 | 0.5-1 天 |
-| P0-06 | 暴露 CLI / HTTP API 入口 | 🔴 未开始 | SKILL.md 写了 `rep:register` 等命令，但代码中只有库函数。需要 CLI（如 `npx agent-rep-score evaluate <agentId>`）或 lightweight HTTP server | 1-2 天 |
-| P0-07 | 添加 OpenAPI / Swagger 文档 | 🔴 未开始 | 让第三方 Agent 平台可以零文档成本集成 | 0.5 天 |
+| P0-05 | 添加 X Layer 主网支持（chainId 196） | 🟢 已实现 | `config.ts` 支持 `NETWORK=mainnet\|testnet` 切换，自动选择 RPC、chainId、合约地址 | 0.5-1 天 |
+| P0-06 | 暴露 CLI / HTTP API 入口 | 🟢 已实现 | `src/cli.ts`（CLI 路由）+ `src/server.ts`（HTTP API）已实现 | 1-2 天 |
+| P0-07 | 添加 OpenAPI / Swagger 文档 | 🟢 已实现 | `openapi.json` 已生成 | 0.5 天 |
 
 ### 3.3 合约安全：紧急控制与权限硬化
 
@@ -78,7 +78,7 @@
 
 | # | 任务 | 状态 | 说明 | 预估工作量 |
 |---|------|------|------|------------|
-| P1-05 | CI 添加 vitest TypeScript 测试步骤 | 🟢 已部分 | `package.json` 已支持 `vitest run`，但 `.github/workflows/test.yml` 还没加这一步 | 0.5 天 |
+| P1-05 | CI 添加 vitest TypeScript 测试步骤 | 🟢 已实现 | `.github/workflows/test.yml` 已添加 vitest 步骤 | 0.5 天 |
 | P1-06 | CI 添加 solhint / Slither SAST 检查 | 🔴 未开始 | 每次 PR 自动运行合约静态分析，拦截高危漏洞模式 | 1 天 |
 | P1-07 | 建立测试网 + 主网自动部署流水线 | 🔴 未开始 | 通过 GitHub Actions + foundry `forge script` 实现 tag push 自动部署到测试网，manual trigger 部署主网 | 1-2 天 |
 | P1-08 | 合约部署后自动验证源码 | 🔴 未开始 | 集成 OKLink / Etherscan verify API | 0.5 天 |
@@ -110,7 +110,7 @@
 | P2-05 | 增加跨模块关联行为分析 | 🔴 未开始 | 检测同一钱包在 Uniswap 和 Aave 上的协同操纵（如闪电贷 + 自交易） | 2-3 天 |
 | P2-06 | 增加评分模型的链下仿真沙盒 | 🔴 未开始 | 在真正写入 Reputation Registry 前，允许运营方在链下模拟不同权重配置的效果 | 2 天 |
 | P2-07 | Skill 层 N+1 RPC 优化 + DRY 重构 | 🔴 未开始 | `evaluate.ts` 与 `query.ts` 中通过循环读取 `modules(i)` 和 `module.name()` 产生 N+1 次 RPC 调用；应引入 multicall 或增加 `getModulesWithNames()` view 函数以减少调用次数 | 1 天 |
-| P2-08 | 增加 `getModulesWithNames()` view 函数 | 🔴 未开始 | 在 `AgentRepValidator` 中增加一个函数，一次性返回所有模块的地址、权重、active 状态和名称，消除 Skill 层 N+1 查询 | 0.5 天 |
+| P2-08 | 增加 `getModulesWithNames()` view 函数 | 🟢 已实现 | 在 `AgentRepValidator` 中增加一个函数，一次性返回所有模块的地址、权重、active 状态和名称，消除 Skill 层 N+1 查询 | 0.5 天 |
 
 ---
 

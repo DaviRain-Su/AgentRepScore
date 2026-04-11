@@ -3,12 +3,15 @@ import swaggerUi from "swagger-ui-express";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { register, evaluate, query, compare, modules } from "./skill/index.ts";
 
 const app: express.Application = express();
 app.use(express.json());
 
-const openApiSpec = JSON.parse(readFileSync("./openapi.json", "utf-8"));
+const openApiSpec = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "openapi.json"), "utf-8")
+);
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 app.get("/api-docs.json", (_req, res) => {
   res.json(openApiSpec);

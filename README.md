@@ -63,6 +63,39 @@ BASE_MODULE=0x... \
 npx tsx scripts/keeper-rpc.ts --wallet=0xYOUR_WALLET [--dry-run]
 ```
 
+### 3. keeper-daemon.ts（定时调度）
+
+定时自动执行所有 Keeper 提交（Swap / Activity / Aave Wallet Meta）。
+
+配置 `.env`：
+
+```bash
+WALLETS=0xWALLET1,0xWALLET2
+DAEMON_INTERVAL_MS=300000   # 默认 5 分钟
+UNISWAP_MODULE=0x...
+UNISWAP_POOLS=0x...,0x...
+BASE_MODULE=0x...
+AAVE_MODULE=0x...
+OKX_API_KEY=...
+OKX_API_SECRET=...
+OKX_PASSPHRASE=...
+```
+
+启动 Daemon：
+
+```bash
+npx tsx scripts/keeper-daemon.ts
+```
+
+停止 Daemon：
+
+```bash
+# 按 Ctrl+C 终止进程
+# 或使用 pm2 / nohup 等进程管理工具后台运行
+```
+
+Daemon 启动后会立即执行一轮，随后按 `DAEMON_INTERVAL_MS` 定时循环。日志直接输出到 stdout，可被重定向到文件或日志收集系统。
+
 ## Skill 命令示例
 
 ### `rep:register`
