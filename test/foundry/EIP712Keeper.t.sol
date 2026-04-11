@@ -33,8 +33,9 @@ contract EIP712KeeperTest is Test {
 
     // --- Uniswap ---
     function test_Uniswap_ValidSignature() public {
-        UniswapScoreModule.SwapSummary memory summary =
-            UniswapScoreModule.SwapSummary(1, 100, 10, 5, 0, false, false, block.timestamp, keccak256("evidence"), address(0));
+        UniswapScoreModule.SwapSummary memory summary = UniswapScoreModule.SwapSummary(
+            1, 100, 10, 5, 0, false, false, block.timestamp, keccak256("evidence"), address(0)
+        );
         bytes memory sig = _signSwapSummary(keeperPk, wallet, summary);
         uni.submitSwapSummary(wallet, summary, sig);
         (uint256 swapCount,,,,,,,,,) = uni.latestSwapSummary(wallet);
@@ -42,8 +43,9 @@ contract EIP712KeeperTest is Test {
     }
 
     function test_Uniswap_InvalidSignatureReverts() public {
-        UniswapScoreModule.SwapSummary memory summary =
-            UniswapScoreModule.SwapSummary(1, 100, 10, 5, 0, false, false, block.timestamp, keccak256("evidence"), address(0));
+        UniswapScoreModule.SwapSummary memory summary = UniswapScoreModule.SwapSummary(
+            1, 100, 10, 5, 0, false, false, block.timestamp, keccak256("evidence"), address(0)
+        );
         bytes memory sig = _signSwapSummary(0xdead, wallet, summary); // wrong signer
         vm.expectRevert(abi.encodeWithSelector(UniswapScoreModule.UnauthorizedKeeper.selector, vm.addr(0xdead)));
         uni.submitSwapSummary(wallet, summary, sig);
@@ -52,17 +54,17 @@ contract EIP712KeeperTest is Test {
     // --- BaseActivity ---
     function test_BaseActivity_ValidSignature() public {
         BaseActivityModule.ActivitySummary memory summary = BaseActivityModule.ActivitySummary(
-            10, block.timestamp - 100, block.timestamp, 5, block.timestamp, keccak256("evidence")
+            10, block.timestamp - 100, block.timestamp, 5, block.timestamp, keccak256("evidence"), false
         );
         bytes memory sig = _signActivitySummary(keeperPk, wallet, summary);
         base.submitActivitySummary(wallet, summary, sig);
-        (uint256 txCount,,,,,) = base.latestActivitySummary(wallet);
+        (uint256 txCount,,,,,,) = base.latestActivitySummary(wallet);
         assertEq(txCount, 10);
     }
 
     function test_BaseActivity_InvalidSignatureReverts() public {
         BaseActivityModule.ActivitySummary memory summary = BaseActivityModule.ActivitySummary(
-            10, block.timestamp - 100, block.timestamp, 5, block.timestamp, keccak256("evidence")
+            10, block.timestamp - 100, block.timestamp, 5, block.timestamp, keccak256("evidence"), false
         );
         bytes memory sig = _signActivitySummary(0xbad, wallet, summary);
         vm.expectRevert(abi.encodeWithSelector(BaseActivityModule.UnauthorizedKeeper.selector, vm.addr(0xbad)));
@@ -128,6 +130,7 @@ contract EIP712KeeperTest is Test {
                 summary.uniqueCounterparties,
                 summary.timestamp,
                 summary.evidenceHash,
+                summary.sybilClusterFlag,
                 base.nonces(wallet_)
             )
         );

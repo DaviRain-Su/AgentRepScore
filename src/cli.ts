@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { register, evaluate, query, compare, modules } from "./skill/index.ts";
 import { loadKeeperHealth } from "./skill/keeper-utils.ts";
+import { loadConfigFromEnv, runOnce, startDaemon } from "./skill/keepers/runner.ts";
 import { logger } from "./skill/logger.ts";
 
 export const program = new Command();
@@ -53,8 +54,30 @@ program
     console.log(JSON.stringify(result, null, 2));
   });
 
-program
-  .command("keeper-health")
+const keeper = program
+  .command("keeper")
+  .description("Keeper service commands");
+
+keeper
+  .command("start")
+  .description("Start the keeper daemon (runs continuously)")
+  .action(async () => {
+    const cfg = loadConfigFromEnv();
+    await startDaemon(cfg);
+  });
+
+keeper
+  .command("run-once")
+  .description("Run a single keeper round and exit")
+  .action(async () => {
+    const cfg = loadConfigFromEnv();
+    const success = await runOnce(cfg);
+    console.log(JSON.stringify({ success }, null, 2));
+    if (!success) process.exitCode = 1;
+  });
+
+keeper
+  .command("health")
   .description("Show keeper service health status")
   .option("-t, --threshold <number>", "Alert threshold for consecutive failures", "3")
   .action(async (options: { threshold: string }) => {
@@ -75,9 +98,7 @@ program
         2
       )
     );
-    if (!healthy) {
-      process.exitCode = 1;
-    }
+    if (!healthy) process.exitCode = 1;
   });
 
 function isMainModule() {

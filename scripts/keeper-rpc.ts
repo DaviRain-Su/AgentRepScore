@@ -38,6 +38,8 @@ import {
   signActivitySummary,
 } from "../src/skill/eip712.ts";
 import { logger } from "../src/skill/logger.ts";
+import { detectFundingClusters, type TxRecord } from "../src/skill/sybil-detector.ts";
+import { fetchTransactionsForSybilDetection } from "../src/skill/keepers/activity-rpc.ts";
 
 dotenv.config();
 
@@ -225,6 +227,7 @@ const baseModuleAbi = [
           { internalType: "uint256", name: "uniqueCounterparties", type: "uint256" },
           { internalType: "uint256", name: "timestamp", type: "uint256" },
           { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
+          { internalType: "bool", name: "sybilClusterFlag", type: "bool" },
         ],
         internalType: "struct BaseActivityModule.ActivitySummary",
         name: "summary",
@@ -312,10 +315,31 @@ async function main() {
     process.exit(0);
   }
 
+  const walletsEnv = process.env.WALLETS || "";
+  const batchWallets = walletsEnv
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith("0x") && s.length === 42);
+  let sybilClusterFlag = false;
+  if (batchWallets.length >= 3) {
+    const allRecords: TxRecord[] = [];
+    for (const w of batchWallets) {
+      try {
+        const recs = await fetchTransactionsForSybilDetection(publicClient, w as Address);
+        allRecords.push(...recs);
+      } catch {
+        // ignore per-wallet failures
+      }
+    }
+    const flagged = detectFundingClusters(batchWallets, allRecords);
+    sybilClusterFlag = flagged.has(wallet.toLowerCase());
+  }
+
   const now = BigInt(Math.floor(Date.now() / 1000));
+
   const evidenceHash = keccak256(
     toBytes(
-      `rpc-activity:${wallet.toLowerCase()}:${activity.txCount}:${activity.firstTxTimestamp}:${activity.lastTxTimestamp}:${activity.uniqueCounterparties}:${now}`
+      `rpc-activity:${wallet.toLowerCase()}:${activity.txCount}:${activity.firstTxTimestamp}:${activity.lastTxTimestamp}:${activity.uniqueCounterparties}:${now}:${sybilClusterFlag}`
     )
   );
 
@@ -326,6 +350,7 @@ async function main() {
     uniqueCounterparties: activity.uniqueCounterparties,
     timestamp: now,
     evidenceHash,
+    sybilClusterFlag,
   };
 
   logger.info(`  evidenceHash:         ${evidenceHash}`);

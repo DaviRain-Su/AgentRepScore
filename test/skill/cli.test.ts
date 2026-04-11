@@ -31,6 +31,12 @@ vi.mock("../../src/skill/keeper-utils", () => ({
   loadKeeperHealth: (...args: any[]) => mockLoadKeeperHealth(...args),
 }));
 
+vi.mock("../../src/skill/keepers/runner", () => ({
+  loadConfigFromEnv: vi.fn(),
+  runOnce: vi.fn(),
+  startDaemon: vi.fn(),
+}));
+
 import { program } from "../../src/cli.ts";
 
 describe("CLI", () => {
@@ -135,7 +141,7 @@ describe("CLI", () => {
     logSpy.mockRestore();
   });
 
-  it("keeper-health outputs health status as JSON", async () => {
+  it("keeper health outputs health status as JSON", async () => {
     mockLoadKeeperHealth.mockReturnValueOnce({
       lastSuccessBlock: "42",
       lastSuccessTimestamp: "2026-04-12T00:00:00.000Z",
@@ -144,7 +150,7 @@ describe("CLI", () => {
     });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await program.parseAsync(["node", "rep", "keeper-health"]);
+    await program.parseAsync(["node", "rep", "keeper", "health"]);
 
     expect(mockLoadKeeperHealth).toHaveBeenCalled();
     const output = JSON.parse(logSpy.mock.calls[0][0] as string);
@@ -156,7 +162,7 @@ describe("CLI", () => {
     logSpy.mockRestore();
   });
 
-  it("keeper-health exits with code 1 when unhealthy", async () => {
+  it("keeper health exits with code 1 when unhealthy", async () => {
     mockLoadKeeperHealth.mockReturnValueOnce({
       lastSuccessBlock: "10",
       lastSuccessTimestamp: "2026-04-11T00:00:00.000Z",
@@ -165,7 +171,7 @@ describe("CLI", () => {
     });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await program.parseAsync(["node", "rep", "keeper-health"]);
+    await program.parseAsync(["node", "rep", "keeper", "health"]);
 
     const output = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(output.healthy).toBe(false);

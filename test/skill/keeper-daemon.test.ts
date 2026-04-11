@@ -30,7 +30,6 @@ describe("buildKeeperCommands", () => {
     UNISWAP_MODULE: "",
     UNISWAP_POOLS: "",
     BASE_MODULE: "",
-    AAVE_MODULE: "",
     OKX_API_KEY: "",
     OKX_API_SECRET: "",
     OKX_PASSPHRASE: "",
@@ -62,14 +61,6 @@ describe("buildKeeperCommands", () => {
       BASE_MODULE: "0x1234",
     });
     expect(cmds.some((c) => c.includes("scripts/keeper-rpc.ts"))).toBe(true);
-  });
-
-  it("builds aave command when aave module is set", () => {
-    const cmds = buildKeeperCommands(wallet, {
-      ...baseEnv,
-      AAVE_MODULE: "0x1234",
-    });
-    expect(cmds.some((c) => c.includes("scripts/keeper-aave.ts"))).toBe(true);
   });
 
   it("returns empty array when no modules are configured", () => {

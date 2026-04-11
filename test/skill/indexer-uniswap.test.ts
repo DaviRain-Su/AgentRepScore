@@ -5,7 +5,7 @@ import {
   detectCounterpartyConcentration,
   parsePools,
   type SwapEvent,
-} from "../../scripts/indexer-uniswap";
+} from "../../src/skill/keepers/uniswap";
 
 const wallet = "0x1234567890123456789012345678901234567890" as const;
 

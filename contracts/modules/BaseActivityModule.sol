@@ -20,12 +20,17 @@ contract BaseActivityModule is IScoreModule {
         uint256 uniqueCounterparties;
         uint256 timestamp;
         bytes32 evidenceHash;
+        bool sybilClusterFlag;
     }
 
     mapping(address => ActivitySummary) public latestActivitySummary;
 
     event ActivitySummarySubmitted(
-        address indexed wallet, uint256 txCount, uint256 uniqueCounterparties, bytes32 evidenceHash
+        address indexed wallet,
+        uint256 txCount,
+        uint256 uniqueCounterparties,
+        bytes32 evidenceHash,
+        bool sybilClusterFlag
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -61,7 +66,7 @@ contract BaseActivityModule is IScoreModule {
     }
 
     bytes32 public constant ACTIVITY_SUMMARY_TYPEHASH = keccak256(
-        "ActivitySummary(address wallet,uint256 txCount,uint256 firstTxTimestamp,uint256 lastTxTimestamp,uint256 uniqueCounterparties,uint256 timestamp,bytes32 evidenceHash,uint256 nonce)"
+        "ActivitySummary(address wallet,uint256 txCount,uint256 firstTxTimestamp,uint256 lastTxTimestamp,uint256 uniqueCounterparties,uint256 timestamp,bytes32 evidenceHash,bool sybilClusterFlag,uint256 nonce)"
     );
 
     mapping(address => uint256) public nonces;
@@ -88,7 +93,10 @@ contract BaseActivityModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitActivitySummary(address wallet, ActivitySummary calldata summary, bytes calldata signature) external whenNotPaused {
+    function submitActivitySummary(address wallet, ActivitySummary calldata summary, bytes calldata signature)
+        external
+        whenNotPaused
+    {
         bytes32 structHash = keccak256(
             abi.encode(
                 ACTIVITY_SUMMARY_TYPEHASH,
@@ -99,6 +107,7 @@ contract BaseActivityModule is IScoreModule {
                 summary.uniqueCounterparties,
                 summary.timestamp,
                 summary.evidenceHash,
+                summary.sybilClusterFlag,
                 nonces[wallet]++
             )
         );
@@ -107,7 +116,9 @@ contract BaseActivityModule is IScoreModule {
         if (!keepers[signer]) revert UnauthorizedKeeper(signer);
 
         latestActivitySummary[wallet] = summary;
-        emit ActivitySummarySubmitted(wallet, summary.txCount, summary.uniqueCounterparties, summary.evidenceHash);
+        emit ActivitySummarySubmitted(
+            wallet, summary.txCount, summary.uniqueCounterparties, summary.evidenceHash, summary.sybilClusterFlag
+        );
     }
 
     function name() external pure override returns (string memory) {
@@ -119,11 +130,12 @@ contract BaseActivityModule is IScoreModule {
     }
 
     function metricNames() external pure override returns (string[] memory) {
-        string[] memory metrics = new string[](4);
+        string[] memory metrics = new string[](5);
         metrics[0] = "txCount";
         metrics[1] = "walletAgeDays";
         metrics[2] = "uniqueCounterparties";
         metrics[3] = "daysSinceLastTx";
+        metrics[4] = "sybilClusterFlag";
         return metrics;
     }
 
@@ -173,6 +185,10 @@ contract BaseActivityModule is IScoreModule {
         uint256 daysSinceLastTx = (block.timestamp - s.lastTxTimestamp) / 1 days;
         if (daysSinceLastTx > 30) {
             score -= int256((daysSinceLastTx / 30) * 500);
+        }
+
+        if (s.sybilClusterFlag) {
+            score -= 2000;
         }
 
         if (score > ScoreConstants.MAX_SCORE) score = ScoreConstants.MAX_SCORE;

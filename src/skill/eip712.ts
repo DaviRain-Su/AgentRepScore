@@ -103,6 +103,7 @@ export interface ActivitySummary {
   uniqueCounterparties: bigint;
   timestamp: bigint;
   evidenceHash: `0x${string}`;
+  sybilClusterFlag: boolean;
 }
 
 export function getActivityDomain(moduleAddress: Address) {
@@ -123,6 +124,7 @@ export const activitySummaryTypes = {
     { name: "uniqueCounterparties", type: "uint256" },
     { name: "timestamp", type: "uint256" },
     { name: "evidenceHash", type: "bytes32" },
+    { name: "sybilClusterFlag", type: "bool" },
     { name: "nonce", type: "uint256" },
   ],
 } as const;
@@ -147,6 +149,7 @@ export async function signActivitySummary(
       uniqueCounterparties: summary.uniqueCounterparties,
       timestamp: summary.timestamp,
       evidenceHash: summary.evidenceHash,
+      sybilClusterFlag: summary.sybilClusterFlag,
       nonce,
     },
   });
@@ -194,3 +197,5 @@ export async function signWalletMeta(
     },
   });
 }
+
+

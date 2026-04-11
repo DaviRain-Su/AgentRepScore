@@ -2,6 +2,7 @@ import {
   keccak256,
   toBytes,
   type Address,
+  type Chain,
   type PublicClient,
   type WalletClient,
 } from "viem";
@@ -14,6 +15,7 @@ import {
   submitWithRetry,
 } from "../keeper-utils.ts";
 import { fetchNonce, signActivitySummary, type ActivitySummary } from "../eip712.ts";
+import { type TxRecord } from "../sybil-detector.ts";
 
 const baseModuleAbi = [
   {
@@ -27,6 +29,7 @@ const baseModuleAbi = [
           { internalType: "uint256", name: "uniqueCounterparties", type: "uint256" },
           { internalType: "uint256", name: "timestamp", type: "uint256" },
           { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
+          { internalType: "bool", name: "sybilClusterFlag", type: "bool" },
         ],
         internalType: "struct BaseActivityModule.ActivitySummary",
         name: "summary",
@@ -147,12 +150,55 @@ export async function fetchActivityData(
   return { txCount, firstTxTimestamp, lastTxTimestamp, uniqueCounterparties };
 }
 
+export async function fetchTransactionsForSybilDetection(
+  client: PublicClient,
+  wallet: Address,
+  maxBlocks: bigint = 10000n
+): Promise<TxRecord[]> {
+  const latestBlock = await client.getBlockNumber();
+  const startBlock = latestBlock > maxBlocks ? latestBlock - maxBlocks : 0n;
+  const BATCH_SIZE = 2000n;
+  const records: TxRecord[] = [];
+
+  for (let from = startBlock; from <= latestBlock; from += BATCH_SIZE) {
+    const to = from + BATCH_SIZE - 1n > latestBlock ? latestBlock : from + BATCH_SIZE - 1n;
+    try {
+      const logs = await client.getLogs({
+        address: undefined,
+        event: {
+          type: "event",
+          name: "Transfer",
+          inputs: [
+            { type: "address", name: "from", indexed: true },
+            { type: "address", name: "to", indexed: true },
+            { type: "uint256", name: "value", indexed: false },
+          ],
+        },
+        args: { to: wallet },
+        fromBlock: from,
+        toBlock: to,
+      });
+      for (const log of logs) {
+        const block = await client.getBlock({ blockNumber: log.blockNumber });
+        records.push({
+          from: String(log.args.from).toLowerCase(),
+          to: wallet.toLowerCase(),
+          timestamp: Number(block.timestamp),
+        });
+      }
+    } catch {
+      logger.warn(`[activity-rpc] getLogs failed for incoming transfers range ${from}-${to}, skipping`);
+    }
+  }
+  return records;
+}
+
 export async function fetchAndSubmitActivity(
   publicClient: PublicClient,
   walletClient: WalletClient,
   wallet: Address,
   moduleAddress: Address,
-  options: { dryRun?: boolean } = {}
+  options: { dryRun?: boolean; sybilClusterFlag?: boolean } = {}
 ): Promise<{ submitted: boolean; activity: ActivityData }> {
   logger.info(`[activity-rpc] Fetching activity for ${wallet}`);
   const activity = await fetchActivityData(publicClient, wallet);
@@ -166,7 +212,7 @@ export async function fetchAndSubmitActivity(
   const now = BigInt(Math.floor(Date.now() / 1000));
   const evidenceHash = keccak256(
     toBytes(
-      `rpc-activity:${wallet.toLowerCase()}:${activity.txCount}:${activity.firstTxTimestamp}:${activity.lastTxTimestamp}:${activity.uniqueCounterparties}:${now}`
+      `rpc-activity:${wallet.toLowerCase()}:${activity.txCount}:${activity.firstTxTimestamp}:${activity.lastTxTimestamp}:${activity.uniqueCounterparties}:${now}:${options.sybilClusterFlag ?? false}`
     )
   );
 
@@ -177,6 +223,7 @@ export async function fetchAndSubmitActivity(
     uniqueCounterparties: activity.uniqueCounterparties,
     timestamp: now,
     evidenceHash,
+    sybilClusterFlag: options.sybilClusterFlag ?? false,
   };
 
   const state = loadKeeperState();
@@ -191,6 +238,8 @@ export async function fetchAndSubmitActivity(
   const receipt = await submitWithRetry(
     async () => {
       const txHash = await walletClient.writeContract({
+        chain: walletClient.chain as Chain,
+        account: walletClient.account!,
         address: moduleAddress,
         abi: baseModuleAbi,
         functionName: "submitActivitySummary",

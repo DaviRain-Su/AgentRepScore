@@ -1,10 +1,8 @@
 import {
-  createPublicClient,
-  createWalletClient,
-  http,
   keccak256,
   toBytes,
   type Address,
+  type Chain,
   type PublicClient,
   type WalletClient,
 } from "viem";
@@ -310,6 +308,8 @@ export async function indexAndSubmit(
   const receipt = await submitWithRetry(
     async () => {
       const txHash = await walletClient.writeContract({
+        chain: walletClient.chain as Chain,
+        account: walletClient.account!,
         address: moduleAddress,
         abi: submitSwapSummaryAbi,
         functionName: "submitSwapSummary",

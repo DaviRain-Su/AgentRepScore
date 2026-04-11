@@ -30,5 +30,4 @@ export const config = {
   reputationRegistry: net.reputationRegistry,
   validationRegistry: process.env.VALIDATION_REGISTRY || "",
   validatorAddress: process.env.VALIDATOR_ADDRESS || "",
-  aavePool: process.env.AAVE_POOL || "0xE3F3Caefdd7180F884c01E57f65Df979Af84f116",
 };
