@@ -145,6 +145,30 @@ contract AgentRepValidatorTest is Test {
         assertEq(validator.pendingGovernance(), address(0));
     }
 
+    function test_GetModulesWithNames() public {
+        _registerModule(modA, 4000);
+        _registerModule(modB, 3500);
+
+        (
+            address[] memory addrs,
+            string[] memory names,
+            string[] memory categories,
+            uint256[] memory weights,
+            bool[] memory active
+        ) = validator.getModulesWithNames();
+        assertEq(addrs.length, 2);
+        assertEq(addrs[0], address(modA));
+        assertEq(addrs[1], address(modB));
+        assertEq(names[0], "ModA");
+        assertEq(names[1], "ModB");
+        assertEq(categories[0], "test");
+        assertEq(categories[1], "test");
+        assertEq(weights[0], 4000);
+        assertEq(weights[1], 3500);
+        assertTrue(active[0]);
+        assertTrue(active[1]);
+    }
+
     function test_GetModuleScores_Confidence() public {
         modB.setResult(6000, 50, bytes32(uint256(2)));
         _registerModule(modA, 4000);

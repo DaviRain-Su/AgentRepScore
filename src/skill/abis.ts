@@ -79,6 +79,19 @@ export const validatorAbi = [
     type: "function",
   },
   {
+    inputs: [],
+    name: "getModulesWithNames",
+    outputs: [
+      { internalType: "address[]", name: "addresses_", type: "address[]" },
+      { internalType: "string[]", name: "names", type: "string[]" },
+      { internalType: "string[]", name: "categories", type: "string[]" },
+      { internalType: "uint256[]", name: "weights", type: "uint256[]" },
+      { internalType: "bool[]", name: "activeStates", type: "bool[]" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     name: "modules",
     outputs: [

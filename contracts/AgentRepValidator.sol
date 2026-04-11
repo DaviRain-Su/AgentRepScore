@@ -372,4 +372,33 @@ contract AgentRepValidator {
 
         return (names, scores, confidences, evidences);
     }
+
+    function getModulesWithNames()
+        external
+        view
+        returns (
+            address[] memory addresses_,
+            string[] memory names,
+            string[] memory categories,
+            uint256[] memory weights,
+            bool[] memory activeStates
+        )
+    {
+        uint256 len = modules.length;
+        addresses_ = new address[](len);
+        names = new string[](len);
+        categories = new string[](len);
+        weights = new uint256[](len);
+        activeStates = new bool[](len);
+
+        for (uint256 i = 0; i < len; i++) {
+            addresses_[i] = address(modules[i].module);
+            names[i] = modules[i].module.name();
+            categories[i] = modules[i].module.category();
+            weights[i] = modules[i].weight;
+            activeStates[i] = modules[i].active;
+        }
+
+        return (addresses_, names, categories, weights, activeStates);
+    }
 }

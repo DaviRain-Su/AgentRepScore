@@ -2,7 +2,7 @@ import { createPublicClient, http } from "viem";
 import { xLayerTestnet } from "viem/chains";
 import { config } from "../../config.ts";
 import { ModulesOutput } from "../types.ts";
-import { validatorAbi, moduleNameAbi } from "../abis.ts";
+import { validatorAbi } from "../abis.ts";
 
 export async function modules(): Promise<ModulesOutput> {
   if (!config.validatorAddress) {
@@ -15,40 +15,22 @@ export async function modules(): Promise<ModulesOutput> {
     transport: http(config.rpc),
   });
 
-  const count = await publicClient.readContract({
+  const moduleData = await publicClient.readContract({
     address: VALIDATOR_ADDRESS,
     abi: validatorAbi,
-    functionName: "moduleCount",
+    functionName: "getModulesWithNames",
   });
 
+  const [addresses_, names, categories, weights, activeStates] = moduleData;
+
   const moduleList: ModulesOutput["modules"] = [];
-
-  for (let i = 0; i < Number(count); i++) {
-    const mod = await publicClient.readContract({
-      address: VALIDATOR_ADDRESS,
-      abi: validatorAbi,
-      functionName: "modules",
-      args: [BigInt(i)],
-    });
-
-    const name = await publicClient.readContract({
-      address: mod[0],
-      abi: moduleNameAbi,
-      functionName: "name",
-    });
-
-    const category = await publicClient.readContract({
-      address: mod[0],
-      abi: moduleNameAbi,
-      functionName: "category",
-    });
-
+  for (let i = 0; i < names.length; i++) {
     moduleList.push({
-      name,
-      category,
-      address: mod[0],
-      weight: Number(mod[1]),
-      active: mod[2],
+      name: names[i],
+      category: categories[i],
+      address: addresses_[i],
+      weight: Number(weights[i]),
+      active: activeStates[i],
     });
   }
 

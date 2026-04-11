@@ -3,7 +3,7 @@ import { xLayerTestnet } from "viem/chains";
 import { QueryInput, ScoreOutput } from "../types.ts";
 import { applyDecay, trustTier } from "../../utils/score-decay.ts";
 import { config } from "../../config.ts";
-import { identityRegistryAbi, validatorAbi, moduleNameAbi } from "../abis.ts";
+import { identityRegistryAbi, validatorAbi } from "../abis.ts";
 
 export async function query(input: QueryInput): Promise<ScoreOutput> {
   if (!config.validatorAddress) {
@@ -35,26 +35,17 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
     args: [BigInt(input.agentId)],
   });
 
-  const moduleCount = await publicClient.readContract({
+  const moduleConfigs = await publicClient.readContract({
     address: VALIDATOR_ADDRESS,
     abi: validatorAbi,
-    functionName: "moduleCount",
+    functionName: "getModulesWithNames",
   });
 
+  const [, moduleNames, , moduleWeights] = moduleConfigs;
+
   const weights: Record<string, number> = {};
-  for (let i = 0; i < Number(moduleCount); i++) {
-    const mod = await publicClient.readContract({
-      address: VALIDATOR_ADDRESS,
-      abi: validatorAbi,
-      functionName: "modules",
-      args: [BigInt(i)],
-    });
-    const name = await publicClient.readContract({
-      address: mod[0],
-      abi: moduleNameAbi,
-      functionName: "name",
-    });
-    weights[name] = Number(mod[1]);
+  for (let i = 0; i < moduleNames.length; i++) {
+    weights[moduleNames[i]] = Number(moduleWeights[i]);
   }
 
   const rawScore = Number(latest[0]);

@@ -22,7 +22,7 @@
       "title": "Add getModulesWithNames view function to AgentRepValidator",
       "description": "Add a view function that returns all module addresses, names, weights, and active states in a single call to eliminate N+1 RPC queries from the Skill layer.",
       "priority": 3,
-      "passes": false
+      "passes": true
     },
     {
       "id": "API-001",

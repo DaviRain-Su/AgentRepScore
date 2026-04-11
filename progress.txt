@@ -32,3 +32,19 @@ Tool: pi
   - Use `pnpm/action-setup@v4` and `actions/setup-node@v4` with `cache: pnpm` for fast, reproducible Node installs in CI.
   - The project's `pnpm-lock.yaml` requires pnpm; using npm/yarn in CI would break.
 ---
+
+## 2026-04-11 22:49 CST - CON-001
+Tool: pi
+- Added `getModulesWithNames()` view function to `AgentRepValidator.sol` that returns all module addresses, names, categories, weights, and active states in a single RPC call.
+- Added Foundry unit test `test_GetModulesWithNames()` verifying correct return values for registered modules.
+- Updated `src/skill/abis.ts` to include the new `getModulesWithNames` function.
+- Refactored `src/skill/commands/modules.ts`, `evaluate.ts`, and `query.ts` to use the batched view function, eliminating N+1 RPC loops.
+- Verified `forge test` (77 tests pass) and `vitest run test/skill/` (11 tests pass); `npx tsc --noEmit` clean.
+- Updated root `AGENTS.md` with batching pattern and created `src/skill/AGENTS.md` for skill-specific ABI maintenance notes.
+- Files changed: `contracts/AgentRepValidator.sol`, `test/foundry/AgentRepValidator.t.sol`, `src/skill/abis.ts`, `src/skill/commands/modules.ts`, `src/skill/commands/evaluate.ts`, `src/skill/commands/query.ts`, `AGENTS.md`, `src/skill/AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - The `validatorAbi` in `src/skill/abis.ts` is the single source of truth for viem; any new Solidity view function must be mirrored there.
+  - Viem returns the tuple output from `readContract` as an array; destructuring works directly (`const [addrs, names, categories, weights, active] = result`).
+  - `evaluate.ts` and `query.ts` align module breakdown weights by module *name* (not index), so `getModulesWithNames` can safely replace the N+1 weight-gathering loop.
+  - The integration test (`test/hardhat/integration.test.ts`) can fail intermittently on live testnet due to state drift (e.g., `ownerOf` revert for a reused agentId); this is unrelated to contract or skill changes.
+---
