@@ -40,6 +40,11 @@ contract AaveScoreModule is IScoreModule {
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
 
+    bool public paused;
+    error ContractPaused();
+    event Paused(address indexed account);
+    event Unpaused(address indexed account);
+
     modifier onlyGovernance() {
         if (msg.sender != governance) revert UnauthorizedGovernance(msg.sender);
         _;
@@ -49,6 +54,14 @@ contract AaveScoreModule is IScoreModule {
         if (!keepers[msg.sender]) revert UnauthorizedKeeper(msg.sender);
         _;
     }
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
+        _;
+    }
+
+    function pause() external onlyGovernance { paused = true; emit Paused(msg.sender); }
+    function unpause() external onlyGovernance { paused = false; emit Unpaused(msg.sender); }
 
     constructor(address aavePool_, address governance_) {
         aavePool = IPool(aavePool_);
@@ -74,6 +87,7 @@ contract AaveScoreModule is IScoreModule {
     function submitWalletMeta(address wallet, uint256 liquidationCount, uint256 suppliedAssetCount)
         external
         onlyKeeper
+        whenNotPaused
     {
         walletMeta[wallet] = WalletMeta({
             liquidationCount: liquidationCount, suppliedAssetCount: suppliedAssetCount, timestamp: block.timestamp

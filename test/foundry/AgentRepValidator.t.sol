@@ -37,8 +37,22 @@ contract AgentRepValidatorTest is Test {
         validator.setCooldown(0);
     }
 
+    // Helper: schedule + warp + execute registerModule through timelock
+    function _registerModule(IScoreModule module, uint256 weight) internal {
+        validator.scheduleRegisterModule(module, weight);
+        vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
+        validator.executeRegisterModule(module, weight);
+    }
+
+    // Helper: schedule + warp + execute updateWeight through timelock
+    function _updateWeight(uint256 moduleIndex, uint256 newWeight) internal {
+        validator.scheduleUpdateWeight(moduleIndex, newWeight);
+        vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
+        validator.executeUpdateWeight(moduleIndex, newWeight);
+    }
+
     function test_RegisterModule() public {
-        validator.registerModule(modA, 4000);
+        _registerModule(modA, 4000);
         (IScoreModule m, uint256 w, bool a) = validator.modules(0);
         assertEq(address(m), address(modA));
         assertEq(w, 4000);
@@ -48,41 +62,46 @@ contract AgentRepValidatorTest is Test {
     function test_RegisterModule_NotGovernance() public {
         vm.prank(address(0xdead));
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.UnauthorizedGovernance.selector, address(0xdead)));
-        validator.registerModule(modA, 1000);
+        validator.scheduleRegisterModule(modA, 1000);
     }
 
     function test_RegisterModule_WeightOverflow() public {
-        validator.registerModule(modA, 6000);
-        validator.registerModule(modB, 3500);
+        _registerModule(modA, 6000);
+        _registerModule(modB, 3500);
+        // Schedule succeeds, but execute reverts due to weight overflow
+        validator.scheduleRegisterModule(modC, 1000);
+        vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.TotalWeightExceeded.selector, 10500));
-        validator.registerModule(modC, 1000);
+        validator.executeRegisterModule(modC, 1000);
     }
 
     function test_UpdateWeight() public {
-        validator.registerModule(modA, 4000);
-        validator.updateWeight(0, 5000);
+        _registerModule(modA, 4000);
+        _updateWeight(0, 5000);
         (, uint256 w,) = validator.modules(0);
         assertEq(w, 5000);
     }
 
     function test_UpdateWeight_ExceedsTotalWeight() public {
-        validator.registerModule(modA, 4000);
-        validator.registerModule(modB, 3500);
-        // 4000 + 3500 = 7500; updating modA to 6501 makes total 10001
+        _registerModule(modA, 4000);
+        _registerModule(modB, 3500);
+        // Schedule succeeds, execute reverts
+        validator.scheduleUpdateWeight(0, 6501);
+        vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.TotalWeightExceeded.selector, 10001));
-        validator.updateWeight(0, 6501);
+        validator.executeUpdateWeight(0, 6501);
     }
 
     function test_SetModuleActive() public {
-        validator.registerModule(modA, 4000);
+        _registerModule(modA, 4000);
         validator.setModuleActive(0, false);
         (,, bool a) = validator.modules(0);
         assertFalse(a);
     }
 
     function test_SetModuleActive_True_ExceedsTotalWeight() public {
-        validator.registerModule(modA, 6000);
-        validator.registerModule(modB, 3500);
+        _registerModule(modA, 6000);
+        _registerModule(modB, 3500);
         validator.setModuleActive(1, false);
         // active total = 6000; reactivating modB makes 9500, which is fine
         validator.setModuleActive(1, true);
@@ -90,13 +109,13 @@ contract AgentRepValidatorTest is Test {
         // Bypass path: deactivate B, register C, try to reactivate B
         // active = 6000 + 2500 = 8500; reactivate B would make 6000+3500+2500 = 12000
         validator.setModuleActive(1, false);
-        validator.registerModule(modC, 2500);
+        _registerModule(modC, 2500);
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.TotalWeightExceeded.selector, 12000));
         validator.setModuleActive(1, true);
     }
 
     function test_HandleValidationRequest_UnauthorizedEvaluator() public {
-        validator.registerModule(modA, 10000);
+        _registerModule(modA, 10000);
         bytes32 req = keccak256("test");
         vm.prank(address(0xdead));
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.UnauthorizedEvaluator.selector, address(0xdead)));
@@ -104,7 +123,7 @@ contract AgentRepValidatorTest is Test {
     }
 
     function test_EvaluateAgent_OnlyEvaluator() public {
-        validator.registerModule(modA, 10000);
+        _registerModule(modA, 10000);
         vm.prank(address(0xdead));
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.UnauthorizedEvaluator.selector, address(0xdead)));
         validator.evaluateAgent(agentId);
@@ -128,9 +147,9 @@ contract AgentRepValidatorTest is Test {
 
     function test_GetModuleScores_Confidence() public {
         modB.setResult(6000, 50, bytes32(uint256(2)));
-        validator.registerModule(modA, 4000);
-        validator.registerModule(modB, 3500);
-        validator.registerModule(modC, 2500);
+        _registerModule(modA, 4000);
+        _registerModule(modB, 3500);
+        _registerModule(modC, 2500);
 
         validator.evaluateAgent(agentId);
         (string[] memory names, int256[] memory scores, uint256[] memory confidences,) =
@@ -142,9 +161,9 @@ contract AgentRepValidatorTest is Test {
     }
 
     function test_EvaluateAgent_Normal() public {
-        validator.registerModule(modA, 4000);
-        validator.registerModule(modB, 3500);
-        validator.registerModule(modC, 2500);
+        _registerModule(modA, 4000);
+        _registerModule(modB, 3500);
+        _registerModule(modC, 2500);
 
         (int256 score, bytes32 evidenceHash) = validator.evaluateAgent(agentId);
         // weighted avg: (8000*4000 + 6000*3500 + 4000*2500) / 10000 = 6300
@@ -160,14 +179,14 @@ contract AgentRepValidatorTest is Test {
 
     function test_EvaluateAgent_Cooldown() public {
         validator.setCooldown(1 hours);
-        validator.registerModule(modA, 10000);
+        _registerModule(modA, 10000);
         validator.evaluateAgent(agentId);
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.CooldownNotElapsed.selector, 1 hours));
         validator.evaluateAgent(agentId);
     }
 
     function test_EvaluateAgent_AgentWalletNotSet() public {
-        validator.registerModule(modA, 10000);
+        _registerModule(modA, 10000);
         uint256 badAgent = 999;
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.AgentWalletNotSet.selector, badAgent));
         validator.evaluateAgent(badAgent);
@@ -175,9 +194,9 @@ contract AgentRepValidatorTest is Test {
 
     function test_EvaluateAgent_ZeroConfidenceModuleIgnored() public {
         modB.setResult(6000, 0, bytes32(uint256(2)));
-        validator.registerModule(modA, 4000);
-        validator.registerModule(modB, 3500);
-        validator.registerModule(modC, 2500);
+        _registerModule(modA, 4000);
+        _registerModule(modB, 3500);
+        _registerModule(modC, 2500);
 
         (int256 score,) = validator.evaluateAgent(agentId);
         // (8000*4000 + 4000*2500) / 6500 = 6461 (int division truncates)
@@ -188,9 +207,9 @@ contract AgentRepValidatorTest is Test {
         modA.setResult(-5000, 100, bytes32(uint256(1)));
         modB.setResult(-3000, 100, bytes32(uint256(2)));
         modC.setResult(-1000, 100, bytes32(uint256(3)));
-        validator.registerModule(modA, 4000);
-        validator.registerModule(modB, 3500);
-        validator.registerModule(modC, 2500);
+        _registerModule(modA, 4000);
+        _registerModule(modB, 3500);
+        _registerModule(modC, 2500);
 
         (int256 score,) = validator.evaluateAgent(agentId);
         // (-5000*4000 + -3000*3500 + -1000*2500) / 10000 = -3300
@@ -212,7 +231,7 @@ contract AgentRepValidatorTest is Test {
     }
 
     function test_GetLatestScore() public {
-        validator.registerModule(modA, 10000);
+        _registerModule(modA, 10000);
         (int256 score,) = validator.evaluateAgent(agentId);
         (int256 s, uint256 ts, bytes32 ev) = validator.getLatestScore(agentId);
         assertEq(s, score);
@@ -221,14 +240,14 @@ contract AgentRepValidatorTest is Test {
     }
 
     function test_HandleValidationRequest() public {
-        validator.registerModule(modA, 10000);
+        _registerModule(modA, 10000);
         bytes32 req = keccak256("test");
         validator.handleValidationRequest(req, agentId);
         assertTrue(validator.validationHandled(req));
     }
 
     function test_HandleValidationRequest_Duplicate() public {
-        validator.registerModule(modA, 10000);
+        _registerModule(modA, 10000);
         bytes32 req = keccak256("test");
         validator.handleValidationRequest(req, agentId);
         vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ValidationAlreadyHandled.selector, req));
@@ -241,21 +260,24 @@ contract AgentRepValidatorTest is Test {
         weightB = bound(weightB, 0, 10000);
         weightC = bound(weightC, 0, 10000);
 
-        if (weightA <= 10000) {
-            validator.registerModule(modA, weightA);
-        }
+        _registerModule(modA, weightA);
+
         if (weightA + weightB <= 10000) {
-            validator.registerModule(modB, weightB);
+            _registerModule(modB, weightB);
         } else {
+            validator.scheduleRegisterModule(modB, weightB);
+            vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
             vm.expectRevert();
-            validator.registerModule(modB, weightB);
+            validator.executeRegisterModule(modB, weightB);
             return;
         }
         if (weightA + weightB + weightC <= 10000) {
-            validator.registerModule(modC, weightC);
+            _registerModule(modC, weightC);
         } else {
+            validator.scheduleRegisterModule(modC, weightC);
+            vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
             vm.expectRevert();
-            validator.registerModule(modC, weightC);
+            validator.executeRegisterModule(modC, weightC);
         }
     }
 
@@ -268,9 +290,9 @@ contract AgentRepValidatorTest is Test {
         modB.setResult(scoreB, 100, bytes32(uint256(2)));
         modC.setResult(scoreC, 100, bytes32(uint256(3)));
 
-        validator.registerModule(modA, 4000);
-        validator.registerModule(modB, 3500);
-        validator.registerModule(modC, 2500);
+        _registerModule(modA, 4000);
+        _registerModule(modB, 3500);
+        _registerModule(modC, 2500);
 
         (int256 score,) = validator.evaluateAgent(agentId);
         assertGe(score, ScoreConstants.MIN_SCORE);

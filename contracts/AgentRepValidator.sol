@@ -92,14 +92,17 @@ contract AgentRepValidator {
     event TimelockExecuted(bytes32 indexed opHash);
     event TimelockCancelled(bytes32 indexed opHash);
 
+    error TimelockParamMismatch(bytes32 expected, bytes32 actual);
+
     function scheduleRegisterModule(IScoreModule module, uint256 weight) external onlyGovernance returns (bytes32) {
-        bytes32 opHash = keccak256(abi.encode("registerModule", module, weight, block.timestamp));
+        bytes32 opHash = keccak256(abi.encode("registerModule", module, weight));
         timelockOps[opHash] = TimelockOp({opHash: opHash, readyAt: block.timestamp + TIMELOCK_DELAY, executed: false});
         emit TimelockScheduled(opHash, block.timestamp + TIMELOCK_DELAY);
         return opHash;
     }
 
-    function executeRegisterModule(bytes32 opHash, IScoreModule module, uint256 weight) external onlyGovernance {
+    function executeRegisterModule(IScoreModule module, uint256 weight) external onlyGovernance {
+        bytes32 opHash = keccak256(abi.encode("registerModule", module, weight));
         _validateTimelock(opHash);
         uint256 totalWeight = _totalActiveWeight();
         if (totalWeight + weight > 10000) revert TotalWeightExceeded(totalWeight + weight);
@@ -108,13 +111,14 @@ contract AgentRepValidator {
     }
 
     function scheduleUpdateWeight(uint256 moduleIndex, uint256 newWeight) external onlyGovernance returns (bytes32) {
-        bytes32 opHash = keccak256(abi.encode("updateWeight", moduleIndex, newWeight, block.timestamp));
+        bytes32 opHash = keccak256(abi.encode("updateWeight", moduleIndex, newWeight));
         timelockOps[opHash] = TimelockOp({opHash: opHash, readyAt: block.timestamp + TIMELOCK_DELAY, executed: false});
         emit TimelockScheduled(opHash, block.timestamp + TIMELOCK_DELAY);
         return opHash;
     }
 
-    function executeUpdateWeight(bytes32 opHash, uint256 moduleIndex, uint256 newWeight) external onlyGovernance {
+    function executeUpdateWeight(uint256 moduleIndex, uint256 newWeight) external onlyGovernance {
+        bytes32 opHash = keccak256(abi.encode("updateWeight", moduleIndex, newWeight));
         _validateTimelock(opHash);
         if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
         modules[moduleIndex].weight = newWeight;
@@ -188,7 +192,7 @@ contract AgentRepValidator {
         evaluators[governance_] = true;
     }
 
-    function setEvaluator(address evaluator, bool allowed) external onlyGovernance {
+    function setEvaluator(address evaluator, bool allowed) external onlyGovernance whenNotPaused {
         evaluators[evaluator] = allowed;
         emit EvaluatorSet(evaluator, allowed);
     }
@@ -213,22 +217,7 @@ contract AgentRepValidator {
         }
     }
 
-    function registerModule(IScoreModule module, uint256 weight) external onlyGovernance {
-        uint256 totalWeight = _totalActiveWeight();
-        if (totalWeight + weight > 10000) revert TotalWeightExceeded(totalWeight + weight);
-        modules.push(ModuleConfig({module: module, weight: weight, active: true}));
-        emit ModuleRegistered(address(module), weight);
-    }
-
-    function updateWeight(uint256 moduleIndex, uint256 newWeight) external onlyGovernance {
-        if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
-        modules[moduleIndex].weight = newWeight;
-        uint256 totalWeight = _totalActiveWeight();
-        if (totalWeight > 10000) revert TotalWeightExceeded(totalWeight);
-        emit ModuleUpdated(moduleIndex, newWeight, modules[moduleIndex].active);
-    }
-
-    function setModuleActive(uint256 moduleIndex, bool active) external onlyGovernance {
+    function setModuleActive(uint256 moduleIndex, bool active) external onlyGovernance whenNotPaused {
         if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
         modules[moduleIndex].active = active;
         if (active) {
@@ -238,7 +227,7 @@ contract AgentRepValidator {
         emit ModuleUpdated(moduleIndex, modules[moduleIndex].weight, active);
     }
 
-    function setCooldown(uint256 cooldown) external onlyGovernance {
+    function setCooldown(uint256 cooldown) external onlyGovernance whenNotPaused {
         evaluationCooldown = cooldown;
     }
 
