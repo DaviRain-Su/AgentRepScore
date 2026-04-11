@@ -5,6 +5,21 @@ import "../interfaces/IScoreModule.sol";
 import "../ScoreConstants.sol";
 import "../lib/EIP712Lib.sol";
 
+interface IUniswapV3Pool {
+    function slot0()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        );
+}
+
 contract UniswapScoreModule is IScoreModule {
     error UnauthorizedKeeper(address caller);
     error UnauthorizedGovernance(address caller);
@@ -23,6 +38,7 @@ contract UniswapScoreModule is IScoreModule {
         bool counterpartyConcentrationFlag;
         uint256 timestamp;
         bytes32 evidenceHash;
+        address pool;
     }
 
     mapping(address => SwapSummary) public latestSwapSummary;
@@ -34,7 +50,8 @@ contract UniswapScoreModule is IScoreModule {
         int256 netPnL,
         bool washTradeFlag,
         bool counterpartyConcentrationFlag,
-        bytes32 evidenceHash
+        bytes32 evidenceHash,
+        address pool
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -70,8 +87,13 @@ contract UniswapScoreModule is IScoreModule {
     }
 
     bytes32 public constant SWAP_SUMMARY_TYPEHASH = keccak256(
-        "SwapSummary(address wallet,uint256 swapCount,uint256 volumeUSD,int256 netPnL,uint256 avgSlippageBps,uint256 feeToPnlRatioBps,bool washTradeFlag,bool counterpartyConcentrationFlag,uint256 timestamp,bytes32 evidenceHash,uint256 nonce)"
+        "SwapSummary(address wallet,uint256 swapCount,uint256 volumeUSD,int256 netPnL,uint256 avgSlippageBps,uint256 feeToPnlRatioBps,bool washTradeFlag,bool counterpartyConcentrationFlag,uint256 timestamp,bytes32 evidenceHash,address pool,uint256 nonce)"
     );
+
+    mapping(address => uint160) public referenceSqrtPriceX96;
+    uint256 public constant MAX_SQRT_PRICE_DEVIATION_BPS = 1000; // 10% sqrt deviation ≈ 21% price deviation
+
+    error PriceDeviationTooHigh(address pool, uint160 current, uint160 ref);
 
     mapping(address => uint256) public nonces;
     bytes32 private immutable _domainSeparator;
@@ -83,6 +105,10 @@ contract UniswapScoreModule is IScoreModule {
 
     function setKeeper(address keeper, bool allowed) external onlyGovernance {
         keepers[keeper] = allowed;
+    }
+
+    function setReferenceSqrtPriceX96(address pool, uint160 sqrtPriceX96) external onlyGovernance {
+        referenceSqrtPriceX96[pool] = sqrtPriceX96;
     }
 
     function initiateGovernanceTransfer(address newGovernance) external onlyGovernance {
@@ -111,6 +137,7 @@ contract UniswapScoreModule is IScoreModule {
                 summary.counterpartyConcentrationFlag,
                 summary.timestamp,
                 summary.evidenceHash,
+                summary.pool,
                 nonces[wallet]++
             )
         );
@@ -126,7 +153,8 @@ contract UniswapScoreModule is IScoreModule {
             summary.netPnL,
             summary.washTradeFlag,
             summary.counterpartyConcentrationFlag,
-            summary.evidenceHash
+            summary.evidenceHash,
+            summary.pool
         );
     }
 
@@ -159,6 +187,25 @@ contract UniswapScoreModule is IScoreModule {
 
         if (s.swapCount == 0 || block.timestamp > s.timestamp + ScoreConstants.DATA_STALE_WINDOW) {
             return (0, 0, bytes32(0));
+        }
+
+        // Slot0 price sanity check
+        if (s.pool != address(0)) {
+            uint160 ref = referenceSqrtPriceX96[s.pool];
+            if (ref != 0) {
+                (uint160 currentSqrtPriceX96,,,,,,) = IUniswapV3Pool(s.pool).slot0();
+                uint256 current = uint256(currentSqrtPriceX96);
+                uint256 refPrice = uint256(ref);
+                if (current > refPrice) {
+                    if (current * 10000 > refPrice * (10000 + MAX_SQRT_PRICE_DEVIATION_BPS)) {
+                        return (0, 0, bytes32(0));
+                    }
+                } else {
+                    if (refPrice * 10000 > current * (10000 + MAX_SQRT_PRICE_DEVIATION_BPS)) {
+                        return (0, 0, bytes32(0));
+                    }
+                }
+            }
         }
 
         score = ScoreConstants.BASE_UNISWAP_SCORE;

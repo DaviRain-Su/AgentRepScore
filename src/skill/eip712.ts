@@ -38,6 +38,7 @@ export interface SwapSummary {
   counterpartyConcentrationFlag: boolean;
   timestamp: bigint;
   evidenceHash: `0x${string}`;
+  pool: Address;
 }
 
 export function getSwapDomain(moduleAddress: Address) {
@@ -61,6 +62,7 @@ export const swapSummaryTypes = {
     { name: "counterpartyConcentrationFlag", type: "bool" },
     { name: "timestamp", type: "uint256" },
     { name: "evidenceHash", type: "bytes32" },
+    { name: "pool", type: "address" },
     { name: "nonce", type: "uint256" },
   ],
 } as const;
@@ -88,6 +90,7 @@ export async function signSwapSummary(
       counterpartyConcentrationFlag: summary.counterpartyConcentrationFlag,
       timestamp: summary.timestamp,
       evidenceHash: summary.evidenceHash,
+      pool: summary.pool,
       nonce,
     },
   });

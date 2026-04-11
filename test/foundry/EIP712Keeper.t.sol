@@ -34,16 +34,16 @@ contract EIP712KeeperTest is Test {
     // --- Uniswap ---
     function test_Uniswap_ValidSignature() public {
         UniswapScoreModule.SwapSummary memory summary =
-            UniswapScoreModule.SwapSummary(1, 100, 10, 5, 0, false, false, block.timestamp, keccak256("evidence"));
+            UniswapScoreModule.SwapSummary(1, 100, 10, 5, 0, false, false, block.timestamp, keccak256("evidence"), address(0));
         bytes memory sig = _signSwapSummary(keeperPk, wallet, summary);
         uni.submitSwapSummary(wallet, summary, sig);
-        (uint256 swapCount,,,,,,,,) = uni.latestSwapSummary(wallet);
+        (uint256 swapCount,,,,,,,,,) = uni.latestSwapSummary(wallet);
         assertEq(swapCount, 1);
     }
 
     function test_Uniswap_InvalidSignatureReverts() public {
         UniswapScoreModule.SwapSummary memory summary =
-            UniswapScoreModule.SwapSummary(1, 100, 10, 5, 0, false, false, block.timestamp, keccak256("evidence"));
+            UniswapScoreModule.SwapSummary(1, 100, 10, 5, 0, false, false, block.timestamp, keccak256("evidence"), address(0));
         bytes memory sig = _signSwapSummary(0xdead, wallet, summary); // wrong signer
         vm.expectRevert(abi.encodeWithSelector(UniswapScoreModule.UnauthorizedKeeper.selector, vm.addr(0xdead)));
         uni.submitSwapSummary(wallet, summary, sig);
@@ -102,6 +102,7 @@ contract EIP712KeeperTest is Test {
                 summary.counterpartyConcentrationFlag,
                 summary.timestamp,
                 summary.evidenceHash,
+                summary.pool,
                 uni.nonces(wallet_)
             )
         );

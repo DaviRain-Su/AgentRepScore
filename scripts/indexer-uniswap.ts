@@ -88,6 +88,7 @@ const submitSwapSummaryAbi = [
           { internalType: "bool", name: "counterpartyConcentrationFlag", type: "bool" },
           { internalType: "uint256", name: "timestamp", type: "uint256" },
           { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
+          { internalType: "address", name: "pool", type: "address" },
         ],
         internalType: "struct UniswapScoreModule.SwapSummary",
         name: "summary",
@@ -124,6 +125,7 @@ export interface SwapSummary {
   counterpartyConcentrationFlag: boolean;
   timestamp: bigint;
   evidenceHash: `0x${string}`;
+  pool: Address;
 }
 
 export function parsePools(env: string): Address[] {
@@ -238,7 +240,8 @@ export function detectWashTrade(events: SwapEvent[]): boolean {
 export function buildSwapSummary(
   wallet: Address,
   allEvents: SwapEvent[],
-  referencePrices: Record<Address, bigint>
+  referencePrices: Record<Address, bigint>,
+  pool: Address = "0x0000000000000000000000000000000000000000"
 ): SwapSummary {
   const walletLower = wallet.toLowerCase();
   const walletEvents = allEvents.filter(
@@ -276,7 +279,7 @@ export function buildSwapSummary(
 
   const evidenceHash = keccak256(
     toBytes(
-      `uniswap-indexer:${walletLower}:${swapCount}:${volumeUSD}:${netPnL}:${avgSlippageBps}:${washTradeFlag}:${counterpartyConcentrationFlag}:${now}`
+      `uniswap-indexer:${walletLower}:${swapCount}:${volumeUSD}:${netPnL}:${avgSlippageBps}:${washTradeFlag}:${counterpartyConcentrationFlag}:${pool}:${now}`
     )
   );
 
@@ -290,6 +293,7 @@ export function buildSwapSummary(
     counterpartyConcentrationFlag,
     timestamp: now,
     evidenceHash,
+    pool,
   };
 }
 
@@ -331,7 +335,8 @@ export async function indexWalletSwaps(
   for (const evt of events) {
     txRefMap[evt.transactionHash] = firstRefPrice;
   }
-  return buildSwapSummary(wallet, events, txRefMap);
+  const primaryPool = pools[0] ?? "0x0000000000000000000000000000000000000000";
+  return buildSwapSummary(wallet, events, txRefMap, primaryPool);
 }
 
 function printUsage() {

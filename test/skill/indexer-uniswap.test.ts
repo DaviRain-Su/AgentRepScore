@@ -53,6 +53,15 @@ describe("indexer-uniswap", () => {
     expect(summary.avgSlippageBps).toBe(0n);
     expect(summary.washTradeFlag).toBe(false);
     expect(summary.counterpartyConcentrationFlag).toBe(false);
+    expect(summary.pool).toBe("0x0000000000000000000000000000000000000000");
+  });
+
+  it("buildSwapSummary includes pool when provided", () => {
+    const pool = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const events: SwapEvent[] = [makeEvent({})];
+    const summary = buildSwapSummary(wallet, events, {}, pool);
+    expect(summary.pool).toBe(pool);
+    expect(summary.evidenceHash.startsWith("0x")).toBe(true);
   });
 
   it("buildSwapSummary aggregates matching events", () => {

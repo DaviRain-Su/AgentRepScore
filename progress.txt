@@ -4,9 +4,28 @@
 - **Keeper state file**: The local deduplication state file path defaults to `.keeper-state.json` and can be overridden with the `KEEPER_STATE_PATH` env var.
 - **Testnet RPC sensitivity**: `test/hardhat/integration.test.ts` runs against live X Layer testnet and will timeout/hang if the RPC is slow or unreachable. This can block `pnpm test:all` even when local/unit changes are correct.
 - **Pool address configuration**: Uniswap V3 pool addresses are not hardcoded; they must be supplied via `UNISWAP_POOLS` env var as comma-separated addresses.
+- **Struct ↔ ABI sync**: When adding a field to a Solidity struct consumed by the indexer/keeper, update **both** the TypeScript `SwapSummary` interface in `src/skill/eip712.ts` and the inline ABI tuple in `scripts/indexer-uniswap.ts` (or equivalent). `viem` type inference will reject mismatched tuples at compile time.
+- **Solidity reserved words**: `reference` is a reserved keyword in Solidity 0.8.20 and cannot be used as a local variable or parameter name (choose `ref` instead).
 
 # Ralph Progress Log
 Started: 2026年 4月11日 星期六 23时28分07秒 CST
+---
+
+## 2026-04-12 06:37 CST - US-010
+Tool: pi
+- Added Uniswap slot0 price sanity check to `UniswapScoreModule.evaluate()`.
+- Added `address pool` to `SwapSummary` struct so the submitted summary references the pool to validate.
+- Added `IUniswapV3Pool` interface with `slot0()` and `referenceSqrtPriceX96` mapping configurable by governance.
+- Introduced `MAX_SQRT_PRICE_DEVIATION_BPS = 1000` (10% sqrt deviation ≈ 21% price deviation); evaluate returns `(0, 0, 0)` if current slot0 price deviates too far from the reference.
+- Created `contracts/mocks/MockUniswapV3Pool.sol` for deterministic testing.
+- Updated Foundry tests with 5 new slot0-related tests: sane price passes, high deviation rejects, low deviation rejects, no pool skips check, no reference skips check.
+- Updated TypeScript side: `src/skill/eip712.ts` and `scripts/indexer-uniswap.ts` now include the `pool` field in `SwapSummary`, the EIP-712 typehash, the inline ABI tuple, evidence hashing, and `buildSwapSummary`.
+- All local quality checks pass: `pnpm tsc --noEmit`, `npx vitest run test/skill/` (74 tests), `forge test` (96 tests). The live testnet integration test fails due to RPC/state issues as documented.
+- Files changed: `contracts/modules/UniswapScoreModule.sol`, `contracts/mocks/MockUniswapV3Pool.sol`, `test/foundry/UniswapScoreModule.t.sol`, `test/foundry/EIP712Keeper.t.sol`, `src/skill/eip712.ts`, `scripts/indexer-uniswap.ts`, `test/skill/indexer-uniswap.test.ts`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - When adding a new field to a Solidity struct consumed by TypeScript keepers, update the TS interface, the EIP-712 type definition, the inline viem ABI tuple, and the evidence hash computation together.
+  - `reference` is a reserved keyword in Solidity 0.8.20; use `ref` or another name to avoid compiler errors.
+  - Using a percentage threshold on `sqrtPriceX96` (rather than full price) is safe from overflow and gives an approximate price-deviation bound; document the mapping so auditors understand the tolerance.
 ---
 
 ## 2026-04-12 01:50 CST - US-007
@@ -21,7 +40,6 @@ Tool: pi
   - Keep CI steps in separate jobs (`check` vs `slither`) for parallelism and clearer failure attribution.
   - Slither action inputs like `fail-on` accept `low`, `medium`, `high`, or `none`; for this project `high` is the appropriate threshold to avoid noise from lower-severity informational findings.
 ---
-
 
 ## 2026-04-12 01:42 CST - US-005
 Tool: pi
@@ -121,7 +139,7 @@ Tool: pi
 - Files changed: `contracts/modules/UniswapScoreModule.sol`, `scripts/indexer-uniswap.ts`, `test/skill/indexer-uniswap.test.ts`, `test/foundry/UniswapScoreModule.t.sol`, `prd.json`
 - **Learnings for future iterations:**
   - When adding a new field to a Solidity struct consumed by the indexer, update both the TypeScript `SwapSummary` interface and the inline ABI tuple used by `viem`'s `writeContract`; otherwise type inference will reject the call at compile time.
-  - `UniswapScoreModule` struct literals in Foundry tests use positional constructor syntax (`SwapSummary(0, 0, 0, 0, 0, false, false, 0, 0)`), so adding a field requires updating every literal in the test file.
+  - `UniswapScoreModule` struct literals in Foundry tests use positional constructor syntax (`SwapSummary(0, 0, 0, 0, 0, false, false, 0, 0, 0, 0)`), so adding a field requires updating every literal in the test file.
   - The concentration threshold (>70%) means tests with exactly 2 unique counterparties out of 2 total swaps will always trigger the flag (100% > 70%). To write a "no flag" aggregation test, use at least 3 unique counterparties.
 ---
 
