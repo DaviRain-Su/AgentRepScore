@@ -1,42 +1,155 @@
 {
   "projectName": "AgentRepScore",
-  "branchName": "main",
-  "version": "1.0.0",
+  "branchName": "ralph/production-readiness",
+  "version": "2.1.0",
   "userStories": [
     {
-      "id": "ENV-001",
-      "title": "Fix testnet validator address in .env",
-      "description": "Update VALIDATOR_ADDRESS in .env to match the currently deployed testnet validator contract so integration tests pass.",
+      "id": "US-001",
+      "title": "Add Uniswap V3 Swap event indexer",
+      "description": "Create a chain-side indexer script that listens to Uniswap V3 Swap events and generates swap summaries, eliminating the manual keeper gap for DEX activity.",
+      "acceptanceCriteria": [
+        "Create `scripts/indexer-uniswap.ts` that indexes Swap events from configured Uniswap pools on X Layer testnet",
+        "The indexer outputs swap summaries compatible with `submitSwapSummary` input format",
+        "Add a simple integration test or manual verification script showing event capture works",
+        "TypeScript compiles without errors (`pnpm tsc --noEmit`)"
+      ],
       "priority": 1,
       "passes": true
     },
     {
-      "id": "CI-001",
-      "title": "Add vitest TypeScript tests to GitHub Actions workflow",
-      "description": "Extend the existing CI workflow to install Node dependencies and run vitest tests (including skill unit tests) so TypeScript code is validated on every push/PR.",
+      "id": "US-002",
+      "title": "Create scheduled daemon service for auto-submission",
+      "description": "Convert existing keeper scripts into a scheduled daemon that automatically calls `submitSwapSummary`, `submitActivitySummary`, and `submitWalletMeta` at regular intervals.",
+      "acceptanceCriteria": [
+        "Create `scripts/keeper-daemon.ts` that runs on a schedule (e.g. every 5 minutes via `node-cron` or `setInterval`)",
+        "Daemon automatically invokes existing keeper logic for swap, activity, and wallet meta submissions",
+        "Daemon runs in the target project directory and respects `.env` configuration",
+        "Add a README section explaining how to start/stop the daemon",
+        "TypeScript compiles without errors"
+      ],
       "priority": 2,
-      "passes": true
+      "passes": false
     },
     {
-      "id": "CON-001",
-      "title": "Add getModulesWithNames view function to AgentRepValidator",
-      "description": "Add a view function that returns all module addresses, names, weights, and active states in a single call to eliminate N+1 RPC queries from the Skill layer.",
+      "id": "US-003",
+      "title": "Add retry, deduplication and idempotency to keeper submissions",
+      "description": "Prevent duplicate or failed on-chain submissions by adding retry logic and block-range-based deduplication to the keeper daemon.",
+      "acceptanceCriteria": [
+        "Implement exponential backoff retry (up to 3 attempts) for all `submit*` contract calls",
+        "Add block-range / nonce deduplication so the same summary is never submitted twice",
+        "Persist last successfully submitted block number/timestamp to a local state file",
+        "TypeScript compiles without errors; existing tests still pass (`pnpm test`)"
+      ],
       "priority": 3,
-      "passes": true
+      "passes": false
     },
     {
-      "id": "API-001",
-      "title": "Expose CLI entry point for Skill commands",
-      "description": "Create a lightweight CLI (e.g., using Commander.js) so users can run rep:register, rep:evaluate, rep:query, rep:compare, and rep:modules from the terminal.",
+      "id": "US-004",
+      "title": "Migrate contract governance to Safe multisig",
+      "description": "Replace the single EOA governance address with a 2-of-3 Gnosis Safe multisig for all critical governance operations in production.",
+      "acceptanceCriteria": [
+        "Update deployment scripts to accept a `GOVERNANCE_SAFE` address and use it as the initial governance address",
+        "Verify that `scheduleRegisterModule`, `executeRegisterModule`, `scheduleUpdateWeight`, `executeUpdateWeight`, and `transferGovernance` require multisig execution",
+        "Add a test or script demonstrating a multisig-executed governance flow (can use a mock multisig or local Safe)",
+        "Solidity tests pass (`forge test`)"
+      ],
       "priority": 4,
-      "passes": true
+      "passes": false
     },
     {
-      "id": "API-002",
-      "title": "Add OpenAPI documentation for HTTP API",
-      "description": "Generate OpenAPI/Swagger documentation for the Skill endpoints to lower integration cost for third-party Agent platforms.",
+      "id": "US-005",
+      "title": "Implement wash trade (A→B→A) detection in indexer",
+      "description": "Detect closed-loop swap cycles within 10 blocks from the same wallet and flag them as wash trades before on-chain submission.",
+      "acceptanceCriteria": [
+        "Add wash-trade detection logic to `scripts/indexer-uniswap.ts` (or a shared util)",
+        "Flag is set when the same wallet performs A→B swap followed by B→A swap within 10 blocks",
+        "Flagged summaries include `washTradeFlag: true` and are still submitted but marked for scoring penalties",
+        "Add a unit test for the detection logic",
+        "TypeScript compiles without errors"
+      ],
       "priority": 5,
-      "passes": true
+      "passes": false
+    },
+    {
+      "id": "US-006",
+      "title": "Implement counterparty concentration check in indexer",
+      "description": "Detect sybil behavior by checking if >70% of a wallet's swap activity involves the same 2 counterparties.",
+      "acceptanceCriteria": [
+        "Add counterparty concentration logic to the indexer or a shared analysis util",
+        "Trigger a penalty flag when >70% of swaps in a window involve ≤2 unique counterparties",
+        "Integrate the flag into the summary submitted to the validator",
+        "Add a unit test for the concentration logic",
+        "TypeScript compiles without errors"
+      ],
+      "priority": 6,
+      "passes": false
+    },
+    {
+      "id": "US-007",
+      "title": "Add Slither SAST to GitHub Actions CI",
+      "description": "Run Slither static analysis on every PR to catch high-risk Solidity vulnerability patterns automatically.",
+      "acceptanceCriteria": [
+        "Extend `.github/workflows/test.yml` with a Slither analysis step",
+        "CI installs Slither (via `pip install slither-analyzer` or a pre-built action)",
+        "The workflow fails on high-severity findings (configurable)",
+        "A test push shows the Slither step running in CI"
+      ],
+      "priority": 7,
+      "passes": false
+    },
+    {
+      "id": "US-008",
+      "title": "Add EIP-712 signature verification for keeper submissions",
+      "description": "Require keepers to sign summary data with EIP-712 before submitting on-chain, reducing the risk of a leaked keeper key.",
+      "acceptanceCriteria": [
+        "Define an EIP-712 domain and type hash for swap/activity/wallet meta summaries",
+        "Update `AgentRepValidator` `submit*` functions to verify the keeper's signature instead of just `onlyKeeper`",
+        "Update keeper scripts to sign payloads before submission",
+        "Add Foundry tests verifying valid signatures are accepted and invalid ones are rejected",
+        "Solidity tests pass (`forge test`)"
+      ],
+      "priority": 8,
+      "passes": false
+    },
+    {
+      "id": "US-009",
+      "title": "Add structured JSON logging to skill and keeper layers",
+      "description": "Replace console.log with structured JSON logging in the skill API and keeper daemon for observability and log aggregation.",
+      "acceptanceCriteria": [
+        "Add a lightweight logger (e.g. `pino` or a simple wrapper) to `src/` and `scripts/`",
+        "All skill commands and keeper scripts output JSON-structured logs with level, message, and metadata",
+        "Logs include `error` objects with stack traces when exceptions occur",
+        "TypeScript compiles without errors; existing tests still pass"
+      ],
+      "priority": 9,
+      "passes": false
+    },
+    {
+      "id": "US-010",
+      "title": "Add Uniswap slot0 price sanity check to evaluation",
+      "description": "Enhance UniswapScoreModule.evaluate by reading the pool's slot0 sqrtPriceX96 to perform a secondary price-reasonableness check.",
+      "acceptanceCriteria": [
+        "Update `UniswapScoreModule.sol` to read `slot0` from the referenced Uniswap pool during evaluation",
+        "Implement a price deviation check (e.g. reject if implied price deviates >X% from expected range)",
+        "Update ABI files in `src/skill/abis.ts` if new view functions are needed",
+        "Add/update Foundry tests for the new validation path",
+        "Solidity tests pass (`forge test`)"
+      ],
+      "priority": 10,
+      "passes": false
+    },
+    {
+      "id": "US-011",
+      "title": "Add keeper health check and basic monitoring",
+      "description": "Expose a lightweight health check endpoint or log heartbeat so operators can detect when the keeper service stalls.",
+      "acceptanceCriteria": [
+        "The daemon writes a heartbeat log or file (`keeper-health.json`) with `lastSuccessBlock` and `lastSuccessTimestamp` after each successful submission round",
+        "If a submission fails for 3 consecutive rounds, emit an `ERROR` level log with explicit alert text",
+        "Add a simple CLI check command (e.g. `pnpm keeper:health`) that reads the health file and exits 0/1",
+        "TypeScript compiles without errors"
+      ],
+      "priority": 11,
+      "passes": false
     }
   ]
 }
