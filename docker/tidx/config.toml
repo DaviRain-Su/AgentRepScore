@@ -1,0 +1,18 @@
+# tidx configuration for indexing X Layer
+
+[http]
+enabled = true
+port = 8080
+bind = "0.0.0.0"
+
+[prometheus]
+enabled = true
+port = 9090
+
+[[chains]]
+name = "xlayer"
+chain_id = 196
+rpc_url = "https://xlayerrpc.okx.com"
+pg_url = "postgres://tidx:tidx@postgres:5432/tidx"
+backfill = true
+batch_size = 100
