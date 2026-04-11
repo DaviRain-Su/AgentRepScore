@@ -76,18 +76,9 @@ contract AgentRepValidator {
     event ModuleRegistered(address indexed module, uint256 weight);
     event ModuleUpdated(uint256 indexed index, uint256 newWeight, bool active);
     event AgentEvaluated(
-        uint256 indexed agentId,
-        int256 score,
-        int128 normalizedScore,
-        uint8 valueDecimals,
-        bytes32 evidenceHash
+        uint256 indexed agentId, int256 score, int128 normalizedScore, uint8 valueDecimals, bytes32 evidenceHash
     );
-    event ValidationResponded(
-        bytes32 indexed requestHash,
-        uint256 indexed agentId,
-        int256 score,
-        bytes32 evidenceHash
-    );
+    event ValidationResponded(bytes32 indexed requestHash, uint256 indexed agentId, int256 score, bytes32 evidenceHash);
     event EvaluatorSet(address indexed evaluator, bool allowed);
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -179,7 +170,12 @@ contract AgentRepValidator {
         emit ValidationResponded(requestHash, agentId, score, evidenceHash);
     }
 
-    function evaluateAgent(uint256 agentId) public onlyEvaluator nonReentrant returns (int256 score, bytes32 evidenceHash) {
+    function evaluateAgent(uint256 agentId)
+        public
+        onlyEvaluator
+        nonReentrant
+        returns (int256 score, bytes32 evidenceHash)
+    {
         return _evaluateAgent(agentId);
     }
 
@@ -207,10 +203,7 @@ contract AgentRepValidator {
             }
 
             moduleScores[agentId][i] = AgentScore({
-                score: modScore,
-                timestamp: block.timestamp,
-                evidenceHash: evidence,
-                confidence: confidence
+                score: modScore, timestamp: block.timestamp, evidenceHash: evidence, confidence: confidence
             });
             evidenceHashes[i] = evidence;
         }
@@ -236,16 +229,8 @@ contract AgentRepValidator {
         // Safe cast: totalScore is clamped to [-10000, 10000], well within int128 range
         int128 normalizedScore = int128(totalScore);
         uint8 valueDecimals = 0;
-        IERC8004Reputation(reputationRegistry).giveFeedback(
-            agentId,
-            normalizedScore,
-            valueDecimals,
-            "agent-rep-score",
-            "",
-            "",
-            "",
-            evidenceHash
-        );
+        IERC8004Reputation(reputationRegistry)
+            .giveFeedback(agentId, normalizedScore, valueDecimals, "agent-rep-score", "", "", "", evidenceHash);
 
         emit AgentEvaluated(agentId, totalScore, normalizedScore, valueDecimals, evidenceHash);
         score = totalScore;

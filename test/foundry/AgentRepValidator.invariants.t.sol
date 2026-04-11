@@ -22,12 +22,8 @@ contract AgentRepValidatorInvariants is Test {
         vm.warp(1_700_000_000);
         identityRegistry = new MockIdentityRegistry();
         reputationRegistry = new MockReputationRegistry();
-        validator = new AgentRepValidator(
-            address(identityRegistry),
-            address(reputationRegistry),
-            address(0),
-            governance
-        );
+        validator =
+            new AgentRepValidator(address(identityRegistry), address(reputationRegistry), address(0), governance);
         modA = new MockScoreModule("ModA", "test", 5000, 100, bytes32(uint256(1)));
         modB = new MockScoreModule("ModB", "test", 6000, 100, bytes32(uint256(2)));
 

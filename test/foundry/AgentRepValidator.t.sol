@@ -61,7 +61,7 @@ contract AgentRepValidatorTest is Test {
     function test_UpdateWeight() public {
         validator.registerModule(modA, 4000);
         validator.updateWeight(0, 5000);
-        (, uint256 w, ) = validator.modules(0);
+        (, uint256 w,) = validator.modules(0);
         assertEq(w, 5000);
     }
 
@@ -76,7 +76,7 @@ contract AgentRepValidatorTest is Test {
     function test_SetModuleActive() public {
         validator.registerModule(modA, 4000);
         validator.setModuleActive(0, false);
-        (, , bool a) = validator.modules(0);
+        (,, bool a) = validator.modules(0);
         assertFalse(a);
     }
 
@@ -133,7 +133,8 @@ contract AgentRepValidatorTest is Test {
         validator.registerModule(modC, 2500);
 
         validator.evaluateAgent(agentId);
-        (string[] memory names, int256[] memory scores, uint256[] memory confidences,) = validator.getModuleScores(agentId);
+        (string[] memory names, int256[] memory scores, uint256[] memory confidences,) =
+            validator.getModuleScores(agentId);
         assertEq(names.length, 3);
         assertEq(confidences[0], 100);
         assertEq(confidences[1], 50);
@@ -212,7 +213,7 @@ contract AgentRepValidatorTest is Test {
 
     function test_GetLatestScore() public {
         validator.registerModule(modA, 10000);
-        (int256 score, ) = validator.evaluateAgent(agentId);
+        (int256 score,) = validator.evaluateAgent(agentId);
         (int256 s, uint256 ts, bytes32 ev) = validator.getLatestScore(agentId);
         assertEq(s, score);
         assertEq(ts, block.timestamp);

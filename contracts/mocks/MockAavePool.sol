@@ -23,12 +23,7 @@ contract MockAavePool {
         uint256 healthFactor
     ) external {
         data[user] = UserAccountData(
-            totalCollateralBase,
-            totalDebtBase,
-            availableBorrowsBase,
-            currentLiquidationThreshold,
-            ltv,
-            healthFactor
+            totalCollateralBase, totalDebtBase, availableBorrowsBase, currentLiquidationThreshold, ltv, healthFactor
         );
     }
 

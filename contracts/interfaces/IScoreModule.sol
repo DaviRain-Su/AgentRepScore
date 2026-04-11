@@ -13,10 +13,7 @@ interface IScoreModule {
     /// @return score 分数，范围 [-10000, 10000]
     /// @return confidence 置信度，范围 [0, 100]，决定该模块权重实际生效比例
     /// @return evidence 链上可验证的证据哈希（通常为 keccak256 聚合值）
-    function evaluate(address wallet)
-        external
-        view
-        returns (int256 score, uint256 confidence, bytes32 evidence);
+    function evaluate(address wallet) external view returns (int256 score, uint256 confidence, bytes32 evidence);
 
     /// @notice 返回该模块输出的指标名称列表
     function metricNames() external view returns (string[] memory);

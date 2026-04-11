@@ -17,13 +17,9 @@ contract BaseActivityModuleTest is Test {
         baseModule.setKeeper(keeper, true);
     }
 
-    function _submit(
-        uint256 txCount,
-        uint256 firstTx,
-        uint256 lastTx,
-        uint256 counterparties,
-        uint256 timestamp
-    ) internal {
+    function _submit(uint256 txCount, uint256 firstTx, uint256 lastTx, uint256 counterparties, uint256 timestamp)
+        internal
+    {
         vm.prank(keeper);
         baseModule.submitActivitySummary(
             wallet,
@@ -39,49 +35,49 @@ contract BaseActivityModuleTest is Test {
     }
 
     function test_NoActivity() public view {
-        (int256 score, uint256 confidence, ) = baseModule.evaluate(wallet);
+        (int256 score, uint256 confidence,) = baseModule.evaluate(wallet);
         assertEq(score, 0);
         assertEq(confidence, 0);
     }
 
     function test_DataExpired() public {
         _submit(100, block.timestamp - 100 days, block.timestamp, 10, block.timestamp - 8 days);
-        (int256 score, uint256 confidence, ) = baseModule.evaluate(wallet);
+        (int256 score, uint256 confidence,) = baseModule.evaluate(wallet);
         assertEq(score, 0);
         assertEq(confidence, 0);
     }
 
     function test_NewWallet() public {
         _submit(20, block.timestamp - 60 days, block.timestamp, 5, block.timestamp);
-        (int256 score, , ) = baseModule.evaluate(wallet);
+        (int256 score,,) = baseModule.evaluate(wallet);
         // base 4000 + age 300 + txCount 300 + counterparties 300 = 4900
         assertEq(score, 4900);
     }
 
     function test_MatureActiveWallet() public {
         _submit(1200, block.timestamp - 400 days, block.timestamp, 60, block.timestamp);
-        (int256 score, , ) = baseModule.evaluate(wallet);
+        (int256 score,,) = baseModule.evaluate(wallet);
         // 4000 + 1500 + 1500 + 1500 = 8500
         assertEq(score, 8500);
     }
 
     function test_FewCounterparties() public {
         _submit(100, block.timestamp - 100 days, block.timestamp, 2, block.timestamp);
-        (int256 score, , ) = baseModule.evaluate(wallet);
+        (int256 score,,) = baseModule.evaluate(wallet);
         // 4000 + 800 + 800 - 1000 = 4600
         assertEq(score, 4600);
     }
 
     function test_LongInactivity() public {
         _submit(100, block.timestamp - 100 days, block.timestamp - 90 days, 10, block.timestamp);
-        (int256 score, , ) = baseModule.evaluate(wallet);
+        (int256 score,,) = baseModule.evaluate(wallet);
         // 4000 + 800 + 800 + 800 - 1500 = 4900. However firstTxTimestamp < block.timestamp - 90 days gives age=90 which is +800
         assertEq(score, 4900);
     }
 
     function test_MinScoreCap() public {
         _submit(1, block.timestamp - 10 days, block.timestamp - 365 days, 1, block.timestamp);
-        (int256 score, , ) = baseModule.evaluate(wallet);
+        (int256 score,,) = baseModule.evaluate(wallet);
         // 4000 - 1000(c counterparties) - 6000(inactivity ~365d) = -3000 (actual module minimum)
         assertEq(score, -3000);
     }
@@ -89,9 +85,6 @@ contract BaseActivityModuleTest is Test {
     function test_UnauthorizedKeeper() public {
         vm.prank(address(0xdead));
         vm.expectRevert(abi.encodeWithSelector(BaseActivityModule.UnauthorizedKeeper.selector, address(0xdead)));
-        baseModule.submitActivitySummary(
-            wallet,
-            BaseActivityModule.ActivitySummary(0, 0, 0, 0, 0, 0)
-        );
+        baseModule.submitActivitySummary(wallet, BaseActivityModule.ActivitySummary(0, 0, 0, 0, 0, 0));
     }
 }

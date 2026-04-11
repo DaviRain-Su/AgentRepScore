@@ -71,11 +71,12 @@ contract AaveScoreModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitWalletMeta(address wallet, uint256 liquidationCount, uint256 suppliedAssetCount) external onlyKeeper {
+    function submitWalletMeta(address wallet, uint256 liquidationCount, uint256 suppliedAssetCount)
+        external
+        onlyKeeper
+    {
         walletMeta[wallet] = WalletMeta({
-            liquidationCount: liquidationCount,
-            suppliedAssetCount: suppliedAssetCount,
-            timestamp: block.timestamp
+            liquidationCount: liquidationCount, suppliedAssetCount: suppliedAssetCount, timestamp: block.timestamp
         });
         emit LiquidationCountUpdated(wallet, liquidationCount, suppliedAssetCount);
     }
@@ -106,9 +107,9 @@ contract AaveScoreModule is IScoreModule {
         (
             uint256 totalCollateralBase,
             uint256 totalDebtBase,
-            /* availableBorrowsBase */ ,
-            /* currentLiquidationThreshold */ ,
-            /* ltv */ ,
+            /* availableBorrowsBase */,
+            /* currentLiquidationThreshold */,
+            /* ltv */,
             uint256 healthFactor
         ) = aavePool.getUserAccountData(wallet);
 

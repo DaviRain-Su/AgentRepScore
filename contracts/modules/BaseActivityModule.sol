@@ -24,10 +24,7 @@ contract BaseActivityModule is IScoreModule {
     mapping(address => ActivitySummary) public latestActivitySummary;
 
     event ActivitySummarySubmitted(
-        address indexed wallet,
-        uint256 txCount,
-        uint256 uniqueCounterparties,
-        bytes32 evidenceHash
+        address indexed wallet, uint256 txCount, uint256 uniqueCounterparties, bytes32 evidenceHash
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);

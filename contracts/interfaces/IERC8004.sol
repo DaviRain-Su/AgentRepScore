@@ -21,7 +21,9 @@ interface IERC8004Reputation {
         bytes32 feedbackHash
     ) external;
     function getSummary(uint256 agentId, address[] calldata clientAddresses, string calldata tag1, string calldata tag2)
-        external view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals);
+        external
+        view
+        returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals);
 }
 
 interface IValidationRegistry {

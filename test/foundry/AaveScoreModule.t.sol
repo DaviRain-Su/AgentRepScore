@@ -21,11 +21,7 @@ contract AaveScoreModuleTest is Test {
         aaveModule.setKeeper(keeper, true);
     }
 
-    function _setData(
-        uint256 collateral,
-        uint256 debt,
-        uint256 healthFactor
-    ) internal {
+    function _setData(uint256 collateral, uint256 debt, uint256 healthFactor) internal {
         mockPool.setUserAccountData(wallet, collateral, debt, 0, 0, 0, healthFactor);
     }
 

@@ -68,7 +68,9 @@ contract UniswapScoreModule is IScoreModule {
 
     function submitSwapSummary(address wallet, SwapSummary calldata summary) external onlyKeeper {
         latestSwapSummary[wallet] = summary;
-        emit SwapSummarySubmitted(wallet, summary.swapCount, summary.volumeUSD, summary.netPnL, summary.washTradeFlag, summary.evidenceHash);
+        emit SwapSummarySubmitted(
+            wallet, summary.swapCount, summary.volumeUSD, summary.netPnL, summary.washTradeFlag, summary.evidenceHash
+        );
     }
 
     function name() external pure override returns (string memory) {
