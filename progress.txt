@@ -20,3 +20,15 @@ Tool: pi
   - The integration test suite requires live testnet RPC and valid deployed contract addresses; it will be skipped automatically if env vars are missing.
   - `xLayerTestnet.id` used in EIP-712 typed data is 195 (confirmed by viem chain definition).
 ---
+
+## 2026-04-11 22:45 CST - CI-001
+Tool: pi
+- Extended `.github/workflows/test.yml` to install pnpm, Node.js 22, dependencies via `pnpm install --frozen-lockfile`, and run `pnpm vitest run` after Foundry tests.
+- Verified `pnpm vitest run` passes (14 tests, 3 unit + skipped integration).
+- Verified `forge test` still passes (76 tests).
+- Files changed: `.github/workflows/test.yml`, `prd.json`, `progress.txt`
+- **Learnings for future iterations:**
+  - The integration test suite auto-skips in CI because `PRIVATE_KEY` and contract env vars are absent; only unit tests run in GitHub Actions.
+  - Use `pnpm/action-setup@v4` and `actions/setup-node@v4` with `cache: pnpm` for fast, reproducible Node installs in CI.
+  - The project's `pnpm-lock.yaml` requires pnpm; using npm/yarn in CI would break.
+---

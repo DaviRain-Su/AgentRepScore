@@ -15,7 +15,7 @@
       "title": "Add vitest TypeScript tests to GitHub Actions workflow",
       "description": "Extend the existing CI workflow to install Node dependencies and run vitest tests (including skill unit tests) so TypeScript code is validated on every push/PR.",
       "priority": 2,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CON-001",
