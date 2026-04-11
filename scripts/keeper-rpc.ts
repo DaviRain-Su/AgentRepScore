@@ -28,7 +28,7 @@ dotenv.config();
 
 const BASE_MODULE = process.env.BASE_MODULE || "";
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
-const RPC_URL = process.env.XLAYER_TESTNET_RPC || "https://testrpc.xlayer.tech/terigon";
+const RPC_URL = process.env.XLAYER_TESTNET_RPC || "https://testrpc.xlayer.tech";
 
 interface ActivityData {
   txCount: bigint;

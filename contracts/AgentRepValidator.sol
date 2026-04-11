@@ -50,6 +50,94 @@ contract AgentRepValidator {
         _status = _NOT_ENTERED;
     }
 
+    // Pausable
+    bool public paused;
+    error ContractPaused();
+    error ContractNotPaused();
+    event Paused(address indexed account);
+    event Unpaused(address indexed account);
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
+        _;
+    }
+
+    function pause() external onlyGovernance {
+        if (paused) revert ContractPaused();
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyGovernance {
+        if (!paused) revert ContractNotPaused();
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    // Timelock for critical governance operations
+    uint256 public constant TIMELOCK_DELAY = 24 hours;
+
+    struct TimelockOp {
+        bytes32 opHash;
+        uint256 readyAt;
+        bool executed;
+    }
+
+    mapping(bytes32 => TimelockOp) public timelockOps;
+
+    error TimelockNotReady(bytes32 opHash, uint256 readyAt);
+    error TimelockNotScheduled(bytes32 opHash);
+    error TimelockAlreadyExecuted(bytes32 opHash);
+    event TimelockScheduled(bytes32 indexed opHash, uint256 readyAt);
+    event TimelockExecuted(bytes32 indexed opHash);
+    event TimelockCancelled(bytes32 indexed opHash);
+
+    function scheduleRegisterModule(IScoreModule module, uint256 weight) external onlyGovernance returns (bytes32) {
+        bytes32 opHash = keccak256(abi.encode("registerModule", module, weight, block.timestamp));
+        timelockOps[opHash] = TimelockOp({opHash: opHash, readyAt: block.timestamp + TIMELOCK_DELAY, executed: false});
+        emit TimelockScheduled(opHash, block.timestamp + TIMELOCK_DELAY);
+        return opHash;
+    }
+
+    function executeRegisterModule(bytes32 opHash, IScoreModule module, uint256 weight) external onlyGovernance {
+        _validateTimelock(opHash);
+        uint256 totalWeight = _totalActiveWeight();
+        if (totalWeight + weight > 10000) revert TotalWeightExceeded(totalWeight + weight);
+        modules.push(ModuleConfig({module: module, weight: weight, active: true}));
+        emit ModuleRegistered(address(module), weight);
+    }
+
+    function scheduleUpdateWeight(uint256 moduleIndex, uint256 newWeight) external onlyGovernance returns (bytes32) {
+        bytes32 opHash = keccak256(abi.encode("updateWeight", moduleIndex, newWeight, block.timestamp));
+        timelockOps[opHash] = TimelockOp({opHash: opHash, readyAt: block.timestamp + TIMELOCK_DELAY, executed: false});
+        emit TimelockScheduled(opHash, block.timestamp + TIMELOCK_DELAY);
+        return opHash;
+    }
+
+    function executeUpdateWeight(bytes32 opHash, uint256 moduleIndex, uint256 newWeight) external onlyGovernance {
+        _validateTimelock(opHash);
+        if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
+        modules[moduleIndex].weight = newWeight;
+        uint256 totalWeight = _totalActiveWeight();
+        if (totalWeight > 10000) revert TotalWeightExceeded(totalWeight);
+        emit ModuleUpdated(moduleIndex, newWeight, modules[moduleIndex].active);
+    }
+
+    function cancelTimelock(bytes32 opHash) external onlyGovernance {
+        if (timelockOps[opHash].readyAt == 0) revert TimelockNotScheduled(opHash);
+        delete timelockOps[opHash];
+        emit TimelockCancelled(opHash);
+    }
+
+    function _validateTimelock(bytes32 opHash) internal {
+        TimelockOp storage op = timelockOps[opHash];
+        if (op.readyAt == 0) revert TimelockNotScheduled(opHash);
+        if (op.executed) revert TimelockAlreadyExecuted(opHash);
+        if (block.timestamp < op.readyAt) revert TimelockNotReady(opHash, op.readyAt);
+        op.executed = true;
+        emit TimelockExecuted(opHash);
+    }
+
     // Evaluator role (governance or keeper)
     mapping(address => bool) public evaluators;
 
@@ -69,7 +157,6 @@ contract AgentRepValidator {
     error UnauthorizedEvaluator(address caller);
     error TotalWeightExceeded(uint256 totalWeight);
     error ValidationAlreadyHandled(bytes32 requestHash);
-    error InvalidValidationRegistry(address registry);
     error ValidationRequestNotFound(bytes32 requestHash);
 
     // Events
@@ -159,7 +246,7 @@ contract AgentRepValidator {
         return modules.length;
     }
 
-    function handleValidationRequest(bytes32 requestHash, uint256 agentId) external onlyEvaluator nonReentrant {
+    function handleValidationRequest(bytes32 requestHash, uint256 agentId) external onlyEvaluator nonReentrant whenNotPaused {
         if (validationHandled[requestHash]) revert ValidationAlreadyHandled(requestHash);
         if (validationRegistry != address(0)) {
             bool exists = IValidationRegistry(validationRegistry).validationRequestExists(requestHash);
@@ -174,6 +261,7 @@ contract AgentRepValidator {
         public
         onlyEvaluator
         nonReentrant
+        whenNotPaused
         returns (int256 score, bytes32 evidenceHash)
     {
         return _evaluateAgent(agentId);

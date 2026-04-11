@@ -55,7 +55,7 @@ async function main() {
   console.log("Balance:", balance.toString(), "wei");
 
   // 1. Deploy modules
-  const aaveModule = await deployContract(wallet, "AaveScoreModule", [AAVE_POOL]);
+  const aaveModule = await deployContract(wallet, "AaveScoreModule", [AAVE_POOL, deployer]);
   const uniModule = await deployContract(wallet, "UniswapScoreModule", [deployer]);
   const baseModule = await deployContract(wallet, "BaseActivityModule", [deployer]);
 

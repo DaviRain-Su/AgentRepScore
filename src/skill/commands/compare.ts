@@ -30,5 +30,8 @@ export async function compare(input: CompareInput): Promise<
     }
   }
 
-  return results.sort((a, b) => b.decayedScore - a.decayedScore);
+  return results.sort((a, b) => {
+    if (a.decayedScore === b.decayedScore) return 0;
+    return a.decayedScore > b.decayedScore ? -1 : 1;
+  });
 }

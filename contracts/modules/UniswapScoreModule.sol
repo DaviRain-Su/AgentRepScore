@@ -36,6 +36,11 @@ contract UniswapScoreModule is IScoreModule {
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
 
+    bool public paused;
+    error ContractPaused();
+    event Paused(address indexed account);
+    event Unpaused(address indexed account);
+
     modifier onlyKeeper() {
         if (!keepers[msg.sender]) revert UnauthorizedKeeper(msg.sender);
         _;
@@ -45,6 +50,14 @@ contract UniswapScoreModule is IScoreModule {
         if (msg.sender != governance) revert UnauthorizedGovernance(msg.sender);
         _;
     }
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
+        _;
+    }
+
+    function pause() external onlyGovernance { paused = true; emit Paused(msg.sender); }
+    function unpause() external onlyGovernance { paused = false; emit Unpaused(msg.sender); }
 
     constructor(address governance_) {
         governance = governance_;
@@ -66,7 +79,7 @@ contract UniswapScoreModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitSwapSummary(address wallet, SwapSummary calldata summary) external onlyKeeper {
+    function submitSwapSummary(address wallet, SwapSummary calldata summary) external onlyKeeper whenNotPaused {
         latestSwapSummary[wallet] = summary;
         emit SwapSummarySubmitted(
             wallet, summary.swapCount, summary.volumeUSD, summary.netPnL, summary.washTradeFlag, summary.evidenceHash

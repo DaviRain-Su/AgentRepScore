@@ -29,6 +29,11 @@ contract BaseActivityModule is IScoreModule {
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
 
+    bool public paused;
+    error ContractPaused();
+    event Paused(address indexed account);
+    event Unpaused(address indexed account);
+
     modifier onlyKeeper() {
         if (!keepers[msg.sender]) revert UnauthorizedKeeper(msg.sender);
         _;
@@ -38,6 +43,14 @@ contract BaseActivityModule is IScoreModule {
         if (msg.sender != governance) revert UnauthorizedGovernance(msg.sender);
         _;
     }
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
+        _;
+    }
+
+    function pause() external onlyGovernance { paused = true; emit Paused(msg.sender); }
+    function unpause() external onlyGovernance { paused = false; emit Unpaused(msg.sender); }
 
     constructor(address governance_) {
         governance = governance_;
@@ -59,7 +72,7 @@ contract BaseActivityModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitActivitySummary(address wallet, ActivitySummary calldata summary) external onlyKeeper {
+    function submitActivitySummary(address wallet, ActivitySummary calldata summary) external onlyKeeper whenNotPaused {
         latestActivitySummary[wallet] = summary;
         emit ActivitySummarySubmitted(wallet, summary.txCount, summary.uniqueCounterparties, summary.evidenceHash);
     }

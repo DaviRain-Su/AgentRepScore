@@ -48,7 +48,7 @@ contract AgentRepValidatorInvariants is Test {
     }
 
     // Invariant 2: any evaluated agent score must be within [-10000, 10000]
-    function invariant_ScoreWithinBounds() public {
+    function invariant_ScoreWithinBounds() public view {
         (int256 score,,) = validator.getLatestScore(agentId);
         // If never evaluated, score is 0 (default). Otherwise it must be clamped.
         assertGe(score, ScoreConstants.MIN_SCORE);

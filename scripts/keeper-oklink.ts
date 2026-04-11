@@ -100,11 +100,11 @@ async function okxFetch(path: string): Promise<any> {
     throw new Error(`OKX API failed (${res.status}): ${text}`);
   }
 
-  const data = await res.json();
+  const data = (await res.json()) as { code: string | number; msg: string };
   if (data.code !== "0" && data.code !== 0) {
     throw new Error(`OKX API error: code=${data.code} msg=${data.msg}`);
   }
-  return data;
+  return data as OkxTxResponse;
 }
 
 async function fetchAllTransactions(wallet: string): Promise<OkxTx[]> {

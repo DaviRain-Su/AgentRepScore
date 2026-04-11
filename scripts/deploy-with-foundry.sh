@@ -13,12 +13,11 @@ FORGE=/Users/davirian/.config/.foundry/bin/forge
 CAST=/Users/davirian/.config/.foundry/bin/cast
 
 echo "Deploying AaveScoreModule..."
-AAVE_MODULE=$($FORGE create contracts/modules/AaveScoreModule.sol:AaveScoreModule --broadcast --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" --constructor-args "${AAVE_POOL}" | grep "Deployed to:" | awk '{print $3}')
+DEPLOYER=$($CAST wallet address "$PRIVATE_KEY")
+AAVE_MODULE=$($FORGE create contracts/modules/AaveScoreModule.sol:AaveScoreModule --broadcast --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" --constructor-args "${AAVE_POOL}" "$DEPLOYER" | grep "Deployed to:" | awk '{print $3}')
 echo "AaveScoreModule: $AAVE_MODULE"
 
 echo "Deploying UniswapScoreModule..."
-# governance address = deployer address (first account from private key)
-DEPLOYER=$($CAST wallet address "$PRIVATE_KEY")
 UNI_MODULE=$($FORGE create contracts/modules/UniswapScoreModule.sol:UniswapScoreModule --broadcast --private-key "$PRIVATE_KEY" --rpc-url "$RPC_URL" --constructor-args "$DEPLOYER" | grep "Deployed to:" | awk '{print $3}')
 echo "UniswapScoreModule: $UNI_MODULE"
 
