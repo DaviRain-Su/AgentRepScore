@@ -38,28 +38,29 @@ npx hardhat compile
 npx vitest run test/hardhat/integration.test.ts
 ```
 
-## Keeper Mock 脚本
+## Keeper 脚本
 
-向链上模块提交模拟的 DeFi 数据（需要 PRIVATE_KEY 对应的地址已是 module keeper）：
+我们提供两种 keeper 脚本向链上模块提交 DeFi 数据：
+
+### 1. keeper-oklink.ts（推荐）
+
+使用 OKX OnchainOS API 获取真实的链上 Swap/Activity 数据并提交：
 
 ```bash
-# 优质 Agent 资料
-npx ts-node scripts/keeper-mock.ts \
-  --wallet=0xYOUR_WALLET \
-  --profile=good
+PRIVATE_KEY=0x... \
+UNISWAP_MODULE=0x... \
+BASE_MODULE=0x... \
+npx tsx scripts/keeper-oklink.ts --wallet=0xYOUR_WALLET
+```
 
-# 洗盘交易资料
-npx ts-node scripts/keeper-mock.ts \
-  --wallet=0xYOUR_WALLET \
-  --profile=wash
+### 2. keeper-rpc.ts
 
-# 用 CLI flag 覆盖任意字段（volumeUSD 单位为 USD，脚本自动乘 1e6）
-npx ts-node scripts/keeper-mock.ts \
-  --wallet=0xYOUR_WALLET \
-  --profile=good \
-  --swapCount=200 \
-  --volumeUSD=100000 \
-  --washTradeFlag=false
+直接从 X Layer RPC 读取钱包交易数据并提交到 BaseActivityModule：
+
+```bash
+PRIVATE_KEY=0x... \
+BASE_MODULE=0x... \
+npx tsx scripts/keeper-rpc.ts --wallet=0xYOUR_WALLET [--dry-run]
 ```
 
 ## Skill 命令示例

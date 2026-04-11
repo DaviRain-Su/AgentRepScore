@@ -12,7 +12,7 @@ export async function modules(): Promise<ModulesOutput> {
   const VALIDATOR_ADDRESS = config.validatorAddress as `0x${string}`;
   const publicClient = createPublicClient({
     chain: xLayerTestnet,
-    transport: http(config.xlayerTestnetRpc),
+    transport: http(config.rpc),
   });
 
   const count = await publicClient.readContract({

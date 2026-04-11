@@ -171,7 +171,7 @@ async function main() {
     domain: {
       name: "ERC8004IdentityRegistry",
       version: "1",
-      chainId: 1952,
+      chainId: xLayerTestnet.id,
       verifyingContract: IDENTITY_REGISTRY as `0x${string}`,
     },
     types: {

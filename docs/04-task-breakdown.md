@@ -55,7 +55,9 @@
 |---|------|------|------|------------|
 | P0-08 | 为主合约和各模块添加 `Pausable` | 🟢 已实现 | `AgentRepValidator` + 3 个模块均已支持 `pause`/`unpause`；evaluate/keeper 提交等关键函数已加 `whenNotPaused` | 0.5-1 天 |
 | P0-09 | 将 governance 从单个 EOA 迁移到 Multisig | 🔴 未开始 | 生产环境必须要求 2-of-3 或 3-of-5 多签才能执行模块注册、权重变更、治理转移 | 0.5 天 |
-| P0-10 | 引入 Timelock 延迟关键操作 | 🟢 已实现 | `scheduleRegisterModule` / `executeRegisterModule`、`scheduleUpdateWeight` / `executeUpdateWeight` 已实现 24h Timelock；opHash 在 execute 时重新验证参数一致性 | 1 天 |
+| P0-10 | 引入 Timelock 延迟关键操作 | 🟢 已实现 | `scheduleRegisterModule` / `executeRegisterModule`、`scheduleUpdateWeight` / `executeUpdateWeight` 已实现 24h Timelock；opHash 在 execute 时重新验证参数一致性；部署脚本通过 `bootstrapModules` 支持初始化注册 | 1 天 |
+| P0-11 | TypeScript 层编译一致性修复 | 🟢 已修复 | `src/skill/commands/*.ts` 统一使用 `config.rpc`；`integration.test.ts` / `e2e-test.ts` 的 EIP-712 chainId 改为动态读取 `xLayerTestnet.id` | 0.5 天 |
+| P0-12 | 部署脚本与合约 Timelock 对齐 | 🟢 已修复 | `deploy-mainnet.ts` 改用 `bootstrapModules` 完成初始化注册，避免调用已删除的 `registerModule` | 0.5 天 |
 
 ---
 
@@ -69,6 +71,8 @@
 | P1-02 | 实现 Counterparty 集中度检测 | 🔴 未开始 | 若 >70% swap 活动涉及相同 2 个地址，触发女巫惩罚 | 1-2 天 |
 | P1-03 | 实现资金源集群检测 | 🔴 未开始 | 检测多个 Agent 钱包是否来自同一 faucet/同一笔资金的子地址分发 | 2-3 天 |
 | P1-04 | 在 `UniswapScoreModule.evaluate` 中利用链上实时状态做二次校验 | 🟡 部分 | 当前 `feeToPnlRatioBps` 已使用；可进一步读取链上 Uniswap Pool 的 `slot0` 做价格合理性校验 | 1-2 天 |
+| P1-11 | Keeper 提交增加链下 EIP-712 签名验证 | 🔴 未开始 | 当前 keeper 摘要完全依赖地址白名单（`onlyKeeper`）。生产环境应要求 keeper 对摘要数据做 EIP-712 签名，模块 `submit*` 函数验证签名者身份，降低单点 key 泄露风险 | 1-2 天 |
+| P1-12 | 修复测试自欺问题 + 文档过时 | 🟢 已修复 | `compare.test.ts` 已重写为测试真实 `compare.ts` 源码（使用 `vi.mock`）；`DESIGN.md` 和 `README.md` 中的过时内容已更新 | 0.5 天 |
 
 ### 4.2 运维与 DevOps
 
@@ -105,6 +109,8 @@
 | P2-04 | 引入动态权重调整（基于治理投票或链上指标） | 🔴 未开始 | 例如某模块长期 confidence 为 0，可自动降低其权重 | 2-3 天 |
 | P2-05 | 增加跨模块关联行为分析 | 🔴 未开始 | 检测同一钱包在 Uniswap 和 Aave 上的协同操纵（如闪电贷 + 自交易） | 2-3 天 |
 | P2-06 | 增加评分模型的链下仿真沙盒 | 🔴 未开始 | 在真正写入 Reputation Registry 前，允许运营方在链下模拟不同权重配置的效果 | 2 天 |
+| P2-07 | Skill 层 N+1 RPC 优化 + DRY 重构 | 🔴 未开始 | `evaluate.ts` 与 `query.ts` 中通过循环读取 `modules(i)` 和 `module.name()` 产生 N+1 次 RPC 调用；应引入 multicall 或增加 `getModulesWithNames()` view 函数以减少调用次数 | 1 天 |
+| P2-08 | 增加 `getModulesWithNames()` view 函数 | 🔴 未开始 | 在 `AgentRepValidator` 中增加一个函数，一次性返回所有模块的地址、权重、active 状态和名称，消除 Skill 层 N+1 查询 | 0.5 天 |
 
 ---
 
@@ -167,3 +173,4 @@
 |------|------|------|
 | v1.0 | 2026-04-11 | 4 天 Hackathon 任务拆解 |
 | v2.0 | 2026-04-11 | 重写为 Production Roadmap，按 P0/P1/P2/P3 分级，覆盖差距分析中的所有任务 |
+| v2.1 | 2026-04-11 | 根据第二轮 Code Review 更新：标记 Pausable/Timelock/TS 编译一致性/deploy-mainnet 对齐/compare 测试/docs 更新为已完成；新增 P1-11 EIP-712 keeper 签名、P2-07 N+1 RPC 优化、P2-08 getModulesWithNames |

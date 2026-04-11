@@ -26,7 +26,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
 
   const VALIDATOR_ADDRESS = config.validatorAddress as `0x${string}`;
   const account = privateKeyToAccount(config.privateKey as `0x${string}`);
-  const transport = http(config.xlayerTestnetRpc);
+  const transport = http(config.rpc);
   const walletClient = createWalletClient({ account, chain: xLayerTestnet, transport });
   const publicClient = createPublicClient({ chain: xLayerTestnet, transport });
 

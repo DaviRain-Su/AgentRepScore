@@ -1,41 +1,59 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { compare } from "../../src/skill/commands/compare";
 
-describe("compare fallback", () => {
+const mockQuery = vi.fn();
+
+vi.mock("../../src/skill/commands/query", () => ({
+  query: (...args: any[]) => mockQuery(...args),
+}));
+
+describe("compare", () => {
   it("sorts successful results by decayedScore descending", async () => {
-    const mockResults = [
-      { agentId: "a", decayedScore: 3000, trustTier: "basic" as const },
-      { agentId: "b", decayedScore: 8000, trustTier: "elite" as const },
-      { agentId: "c", decayedScore: 5000, trustTier: "verified" as const },
-    ];
-    // Simulate a tolerant compare that never throws
-    const compare = async () => mockResults.sort((a, b) => b.decayedScore - a.decayedScore);
-    const results = await compare();
+    mockQuery.mockResolvedValueOnce({
+      agentId: "a",
+      decayedScore: 3000,
+      trustTier: "basic",
+    });
+    mockQuery.mockResolvedValueOnce({
+      agentId: "b",
+      decayedScore: 8000,
+      trustTier: "elite",
+    });
+    mockQuery.mockResolvedValueOnce({
+      agentId: "c",
+      decayedScore: 5000,
+      trustTier: "verified",
+    });
+
+    const results = await compare({ agentIds: ["a", "b", "c"] });
     expect(results[0].agentId).toBe("b");
     expect(results[1].agentId).toBe("c");
     expect(results[2].agentId).toBe("a");
   });
-});
 
-describe("withTimeout pattern", () => {
-  it("resolves when promise is faster than timeout", async () => {
-    const fast = Promise.resolve(42);
-    const result = await Promise.race([
-      fast,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("timed out")), 1000)
-      ),
-    ]);
-    expect(result).toBe(42);
+  it("handles partial failures without throwing", async () => {
+    mockQuery.mockResolvedValueOnce({
+      agentId: "ok",
+      decayedScore: 7000,
+      trustTier: "verified",
+    });
+    mockQuery.mockRejectedValueOnce(new Error("network error"));
+
+    const results = await compare({ agentIds: ["ok", "bad"] });
+    expect(results[0].agentId).toBe("ok");
+    expect(results[0].decayedScore).toBe(7000);
+    expect(results[1].agentId).toBe("bad");
+    expect(results[1].decayedScore).toBe(-Infinity);
+    expect(results[1].trustTier).toBe("untrusted");
+    expect(results[1].error).toBe("network error");
   });
 
-  it("rejects when timeout is exceeded", async () => {
-    const slow = new Promise((resolve) => setTimeout(resolve, 100));
-    const raced = Promise.race([
-      slow,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("timed out after 10ms")), 10)
-      ),
-    ]);
-    await expect(raced).rejects.toThrow("timed out after 10ms");
+  it("handles all failures gracefully", async () => {
+    mockQuery.mockRejectedValueOnce(new Error("fail1"));
+    mockQuery.mockRejectedValueOnce(new Error("fail2"));
+
+    const results = await compare({ agentIds: ["a", "b"] });
+    expect(results.every((r) => r.decayedScore === -Infinity)).toBe(true);
+    expect(results.every((r) => r.trustTier === "untrusted")).toBe(true);
   });
 });

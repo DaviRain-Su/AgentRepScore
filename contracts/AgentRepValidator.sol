@@ -179,6 +179,9 @@ contract AgentRepValidator {
         _;
     }
 
+    uint256 public immutable bootstrapDeadline;
+    error BootstrapExpired();
+
     constructor(
         address identityRegistry_,
         address reputationRegistry_,
@@ -190,6 +193,22 @@ contract AgentRepValidator {
         validationRegistry = validationRegistry_;
         governance = governance_;
         evaluators[governance_] = true;
+        bootstrapDeadline = block.timestamp + 1 hours;
+    }
+
+    function bootstrapModules(IScoreModule[] calldata moduleList, uint256[] calldata weights)
+        external
+        onlyGovernance
+        whenNotPaused
+    {
+        if (block.timestamp > bootstrapDeadline) revert BootstrapExpired();
+        if (moduleList.length != weights.length) revert ModuleIndexOutOfBounds(moduleList.length);
+        for (uint256 i = 0; i < moduleList.length; i++) {
+            uint256 totalWeight = _totalActiveWeight();
+            if (totalWeight + weights[i] > 10000) revert TotalWeightExceeded(totalWeight + weights[i]);
+            modules.push(ModuleConfig({module: moduleList[i], weight: weights[i], active: true}));
+            emit ModuleRegistered(address(moduleList[i]), weights[i]);
+        }
     }
 
     function setEvaluator(address evaluator, bool allowed) external onlyGovernance whenNotPaused {

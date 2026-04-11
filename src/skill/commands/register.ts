@@ -20,7 +20,7 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
   }
 
   const account = privateKeyToAccount(config.privateKey as `0x${string}`);
-  const transport = http(config.xlayerTestnetRpc);
+  const transport = http(config.rpc);
   const walletClient = createWalletClient({ account, chain: xLayerTestnet, transport });
   const publicClient = createPublicClient({ chain: xLayerTestnet, transport });
 

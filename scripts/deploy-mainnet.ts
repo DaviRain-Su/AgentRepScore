@@ -73,18 +73,16 @@ async function main() {
   const validatorAddress = await validator.getAddress();
   console.log("AgentRepValidator deployed to:", validatorAddress);
 
-  // 3. Register modules in validator
-  const weights = [
-    { name: "AaveScoreModule", address: aaveModule, weight: 3500n },
-    { name: "UniswapScoreModule", address: uniModule, weight: 4000n },
-    { name: "BaseActivityModule", address: baseModule, weight: 2500n },
-  ];
+  // 3. Bootstrap register modules in validator (must be within 1 hour of deployment)
+  const moduleAddrs = [aaveModule, uniModule, baseModule];
+  const moduleWeights = [3500n, 4000n, 2500n];
 
-  for (const mod of weights) {
-    // @ts-expect-error hardhat type inference limitation
-    const tx = await validator.registerModule(mod.address, mod.weight);
-    await tx.wait();
-    console.log(`Registered ${mod.name} with weight ${mod.weight}`);
+  // @ts-expect-error hardhat type inference limitation
+  const bootstrapTx = await validator.bootstrapModules(moduleAddrs, moduleWeights);
+  await bootstrapTx.wait();
+  console.log("Bootstrapped modules via validator.bootstrapModules()");
+  for (let i = 0; i < moduleAddrs.length; i++) {
+    console.log(`  Module ${i}: ${moduleAddrs[i]} weight=${moduleWeights[i]}`);
   }
 
   // 4. Set deployer as keeper for Uniswap and Base modules
