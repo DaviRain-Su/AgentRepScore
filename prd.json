@@ -95,7 +95,7 @@
         "A test push shows the Slither step running in CI"
       ],
       "priority": 7,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-008",
