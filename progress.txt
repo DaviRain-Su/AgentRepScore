@@ -9,6 +9,21 @@
 Started: 2026年 4月11日 星期六 23时28分07秒 CST
 ---
 
+## 2026-04-12 01:42 CST - US-005
+Tool: pi
+- Implemented wash-trade (A→B→A) detection in `scripts/indexer-uniswap.ts` via new `detectWashTrade(events)` utility.
+- Detection logic: for a wallet's swap events sorted by block number, any pair within ≤10 blocks where both `amount0` and `amount1` signs flip is flagged as a wash trade.
+- Updated `buildSwapSummary` to call `detectWashTrade(walletEvents)` and propagate the result into `SwapSummary.washTradeFlag`.
+- Updated evidence hash computation in `buildSwapSummary` to use the actual `washTradeFlag` value instead of hardcoded `false`.
+- Added 6 unit tests in `test/skill/indexer-uniswap.test.ts` covering: empty events, single swap, same-sign pattern (no flag), A→B→A within 10 blocks (flagged), A→B→A beyond 10 blocks (not flagged), and `buildSwapSummary` integration.
+- All quality checks pass: `pnpm tsc --noEmit`, `npx vitest run test/skill/` (61 tests), `forge test` (83 tests).
+- Files changed: `scripts/indexer-uniswap.ts`, `test/skill/indexer-uniswap.test.ts`, `prd.json`
+- **Learnings for future iterations:**
+  - `UniswapScoreModule` already has first-class `washTradeFlag` support in both the struct and `evaluate()` (subtracts 3000 points when true), so indexer-side integration only requires setting the boolean correctly.
+  - When computing `evidenceHash` from off-chain data, include all summary fields that affect scoring; I updated the hash template to interpolate the actual `washTradeFlag` instead of a hardcoded `false`.
+  - Uniswap V3 `Swap` events use signed `amount0`/`amount1` — one is negative (token out) and one is positive (token in). Flipping both signs across two swaps is a robust heuristic for an A→B→A cycle without needing token metadata.
+---
+
 ## 2026-04-12 01:45 CST - US-004
 Tool: pi
 - Migrated contract governance to a Safe-compatible multisig by updating deployment scripts and adding Foundry tests.
