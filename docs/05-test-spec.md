@@ -88,10 +88,11 @@
 | AAVE-005 | 健康因子低于 1.0 | healthFactor=0.9e18 | score 含 -3000 扣分 |
 | AAVE-006 | 利用率理想区间 | utilization=5000 | score 含 +1000 加分 |
 | AAVE-007 | 利用率过高 | utilization=8500 | score 含 -500 扣分 |
-| AAVE-008 | 多次清算 | liquidationCount=2 | score 含 -3000 扣分 |
-| AAVE-009 | 资产多样性高 | assetCount=3 | score 含 +1000 加分 |
+| AAVE-008 | 多次清算（keeper 提交） | keeper 提交 liquidationCount=2 | score 含 -3000 扣分 |
+| AAVE-009 | 资产多样性高（keeper 提交） | keeper 提交 suppliedAssetCount=3 | score 含 +1000 加分 |
 | AAVE-010 | 分数边界上限 | 所有正向条件触发 | score == 10000 |
 | AAVE-011 | 分数下界保护 | 多次清算 + 健康因子极低 | score == -10000 |
+| AAVE-012 | 治理转移 | governance 发起 | `governance` 成功更新为 newGov |
 
 ---
 
@@ -105,9 +106,11 @@
 | UNI-004 | 高交易量 + 低滑点 | volumeUSD=200_000e6, slippage=5, netPnL>0 | score 接近上限（~9000） |
 | UNI-005 | 净亏损较大 | netPnL=-20_000e6 | score 显著下降（含 -2000 扣分） |
 | UNI-006 | 刷量标记 | washTradeFlag=true | score 额外 -3000 |
-| UNI-007 | 分数边界上限 | 所有理想条件 | score == 10000 |
-| UNI-008 | 分数下界保护 | 刷量 + 高滑点 + 大亏损 | score == -10000 |
-| UNI-009 | keeper 权限控制 | 非 keeper 地址 | `submitSwapSummary(...)` | revert `UnauthorizedKeeper` |
+| UNI-007 | fee-to-PnL 反作弊惩罚 | netPnL > 0 且 feeToPnlRatioBps > 5000 | score 额外 -1500 |
+| UNI-008 | 分数边界上限 | 所有理想条件 | score == 10000 |
+| UNI-009 | 分数下界保护 | 刷量 + 高滑点 + 大亏损 | score == -10000 |
+| UNI-010 | keeper 权限控制 | 非 keeper 地址 | `submitSwapSummary(...)` | revert `UnauthorizedKeeper` |
+| UNI-011 | 治理转移 | governance 发起 | `governance` 成功更新为 newGov |
 
 ---
 
@@ -123,6 +126,7 @@
 | BASE-006 | 长期不活跃 | lastTxTimestamp=90 天前 | score 额外 -750（1.5 个 30 天窗口） |
 | BASE-007 | 分数边界下限 | 极端不活跃 + 低交互 | score == -10000 |
 | BASE-008 | keeper 权限控制 | 非 keeper 地址 | `submitActivitySummary(...)` | revert `UnauthorizedKeeper` |
+| BASE-009 | 治理转移 | governance 发起 | `governance` 成功更新为 newGov |
 
 ---
 
@@ -227,3 +231,5 @@ npx vitest run test/skill/commands.test.ts
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v1.0 | 2026-04-11 | 初版，覆盖 Foundry/Hardhat/TypeScript 三层测试策略 |
+| v2.1 | 2026-04-11 | 增加 foundry.toml fork 配置、Hardhat network 配置、Mock 依赖说明 |
+| v2.2 | 2026-04-11 | 更新状态：标记 fuzz/invariant/vitest 为已实现；补充 `onlyEvaluator`/`confidence`/`governance transfer` 等新增测试用例；标记 keeper 自动化测试和反作弊模拟测试为待补齐 |
