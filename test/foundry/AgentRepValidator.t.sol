@@ -298,4 +298,123 @@ contract AgentRepValidatorTest is Test {
         assertGe(score, ScoreConstants.MIN_SCORE);
         assertLe(score, ScoreConstants.MAX_SCORE);
     }
+
+    // Pause tests
+    function test_Pause_EvaluateAgentBlocked() public {
+        _registerModule(modA, 10000);
+        validator.pause();
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ContractPaused.selector));
+        validator.evaluateAgent(agentId);
+    }
+
+    function test_Pause_HandleValidationRequestBlocked() public {
+        _registerModule(modA, 10000);
+        validator.pause();
+        bytes32 req = keccak256("test");
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ContractPaused.selector));
+        validator.handleValidationRequest(req, agentId);
+    }
+
+    function test_Pause_SetModuleActiveBlocked() public {
+        _registerModule(modA, 10000);
+        validator.pause();
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ContractPaused.selector));
+        validator.setModuleActive(0, false);
+    }
+
+    function test_Pause_SetCooldownBlocked() public {
+        validator.pause();
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ContractPaused.selector));
+        validator.setCooldown(1 hours);
+    }
+
+    function test_Pause_SetEvaluatorBlocked() public {
+        validator.pause();
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ContractPaused.selector));
+        validator.setEvaluator(address(0xbeef), true);
+    }
+
+    function test_Pause_Unpause() public {
+        validator.pause();
+        assertTrue(validator.paused());
+        validator.unpause();
+        assertFalse(validator.paused());
+    }
+
+    function test_Pause_OnlyGovernance() public {
+        vm.prank(address(0xdead));
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.UnauthorizedGovernance.selector, address(0xdead)));
+        validator.pause();
+    }
+
+    function test_Unpause_OnlyGovernance() public {
+        validator.pause();
+        vm.prank(address(0xdead));
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.UnauthorizedGovernance.selector, address(0xdead)));
+        validator.unpause();
+    }
+
+    function test_Unpause_AlreadyUnpausedReverts() public {
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ContractNotPaused.selector));
+        validator.unpause();
+    }
+
+    function test_Pause_AlreadyPausedReverts() public {
+        validator.pause();
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.ContractPaused.selector));
+        validator.pause();
+    }
+
+    // Timelock tests
+    function test_Timelock_ExecuteBeforeDelayReverts() public {
+        bytes32 opHash = validator.scheduleRegisterModule(modA, 4000);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AgentRepValidator.TimelockNotReady.selector, opHash, block.timestamp + validator.TIMELOCK_DELAY()
+            )
+        );
+        validator.executeRegisterModule(modA, 4000);
+    }
+
+    function test_Timelock_Cancel() public {
+        bytes32 opHash = validator.scheduleRegisterModule(modA, 4000);
+        validator.cancelTimelock(opHash);
+        vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.TimelockNotScheduled.selector, opHash));
+        validator.executeRegisterModule(modA, 4000);
+    }
+
+    function test_Timelock_DoubleExecutionReverts() public {
+        validator.scheduleRegisterModule(modA, 4000);
+        vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
+        validator.executeRegisterModule(modA, 4000);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AgentRepValidator.TimelockAlreadyExecuted.selector, keccak256(abi.encode("registerModule", modA, 4000))
+            )
+        );
+        validator.executeRegisterModule(modA, 4000);
+    }
+
+    function test_Timelock_ParamMismatchReverts() public {
+        validator.scheduleRegisterModule(modA, 4000);
+        vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
+        // modB with weight 4000 was never scheduled
+        bytes32 badOpHash = keccak256(abi.encode("registerModule", modB, 4000));
+        vm.expectRevert(abi.encodeWithSelector(AgentRepValidator.TimelockNotScheduled.selector, badOpHash));
+        validator.executeRegisterModule(modB, 4000);
+    }
+
+    function test_Timelock_UpdateWeightFlow() public {
+        _registerModule(modA, 4000);
+        bytes32 opHash = validator.scheduleUpdateWeight(0, 5000);
+        vm.warp(block.timestamp + validator.TIMELOCK_DELAY() + 1);
+        validator.executeUpdateWeight(0, 5000);
+        (, uint256 w,) = validator.modules(0);
+        assertEq(w, 5000);
+
+        (,, bool executed) = validator.timelockOps(opHash);
+        assertTrue(executed);
+    }
 }

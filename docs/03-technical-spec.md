@@ -913,8 +913,8 @@ AAVE_POOL=0x...
 | 评估冷却期 | 🟢 已实现 | 默认 1 天，可治理调整 |
 | 权重总和校验 | 🟢 已实现 | `registerModule`、`updateWeight`、`setModuleActive(true)` 均校验 ≤ 10000 |
 | 2-step 治理转移 | 🟢 已实现 | `initiateGovernanceTransfer` + `acceptGovernanceTransfer` |
-| 紧急 Pause | 🔴 未实现 | **P0：** 发现漏洞时无法紧急冻结 |
-| Timelock | 🔴 未实现 | **P0：** 关键操作应延迟生效 |
+| 紧急 Pause | 🟢 已实现 | `AgentRepValidator` + 3 个模块均已实现 `Pausable`；`evaluateAgent`、keeper 提交、治理函数均已加 `whenNotPaused` |
+| Timelock | 🟢 已实现 | `scheduleRegisterModule` / `executeRegisterModule`、`scheduleUpdateWeight` / `executeUpdateWeight` 已实现 24h 延迟；opHash 在 execute 时重新验证参数一致性 |
 | Multisig | 🔴 未实现 | **P0：** governance 仍是单个 EOA |
 | 第三方安全审计 | 🔴 未实现 | **P1：** 正式上线前必须完成 |
 | keeper 签名（EIP-712） | 🟡 部分 | `register.ts` 中 EIP-712 用于 `setAgentWallet`，但 keeper 提交摘要尚未要求链下签名验证 |

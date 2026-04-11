@@ -56,8 +56,15 @@ contract UniswapScoreModule is IScoreModule {
         _;
     }
 
-    function pause() external onlyGovernance { paused = true; emit Paused(msg.sender); }
-    function unpause() external onlyGovernance { paused = false; emit Unpaused(msg.sender); }
+    function pause() external onlyGovernance {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyGovernance {
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
 
     constructor(address governance_) {
         governance = governance_;

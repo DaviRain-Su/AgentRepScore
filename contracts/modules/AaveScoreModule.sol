@@ -60,8 +60,15 @@ contract AaveScoreModule is IScoreModule {
         _;
     }
 
-    function pause() external onlyGovernance { paused = true; emit Paused(msg.sender); }
-    function unpause() external onlyGovernance { paused = false; emit Unpaused(msg.sender); }
+    function pause() external onlyGovernance {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyGovernance {
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
 
     constructor(address aavePool_, address governance_) {
         aavePool = IPool(aavePool_);

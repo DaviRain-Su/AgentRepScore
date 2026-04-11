@@ -235,7 +235,12 @@ contract AgentRepValidator {
         return modules.length;
     }
 
-    function handleValidationRequest(bytes32 requestHash, uint256 agentId) external onlyEvaluator nonReentrant whenNotPaused {
+    function handleValidationRequest(bytes32 requestHash, uint256 agentId)
+        external
+        onlyEvaluator
+        nonReentrant
+        whenNotPaused
+    {
         if (validationHandled[requestHash]) revert ValidationAlreadyHandled(requestHash);
         if (validationRegistry != address(0)) {
             bool exists = IValidationRegistry(validationRegistry).validationRequestExists(requestHash);

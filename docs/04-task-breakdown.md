@@ -15,7 +15,7 @@
 | 数据基础设施 | ~30% | Uniswap/BaseActivity 100% 依赖 keeper 手动提交；无自动索引器+Merkle 证明 |
 | Skill / 集成层 | ~50% | 有库函数但无 CLI/HTTP 路由；只有 testnet 支持；无主网部署 |
 | 运维 / DevOps | ~40% | CI 缺 TS 测试、lint、SAST；无自动部署流水线 |
-| 安全 / 治理 | ~60% | 有两步治理转移，但缺 Timelock/Pause/多签/审计 |
+| 安全 / 治理 | ~75% | Pausable + Timelock + 两步治理转移已实现；仍缺 Multisig + 第三方审计 |
 
 **总体完成度：~55%（Hackathon MVP 后可演示，但离 Production 还有显著差距）**
 
@@ -53,9 +53,9 @@
 
 | # | 任务 | 状态 | 说明 | 预估工作量 |
 |---|------|------|------|------------|
-| P0-08 | 为主合约和各模块添加 `Pausable` | 🔴 未开始 | 发现漏洞时可紧急暂停 `evaluateAgent`、`submitSwapSummary` 等关键函数 | 0.5-1 天 |
+| P0-08 | 为主合约和各模块添加 `Pausable` | 🟢 已实现 | `AgentRepValidator` + 3 个模块均已支持 `pause`/`unpause`；evaluate/keeper 提交等关键函数已加 `whenNotPaused` | 0.5-1 天 |
 | P0-09 | 将 governance 从单个 EOA 迁移到 Multisig | 🔴 未开始 | 生产环境必须要求 2-of-3 或 3-of-5 多签才能执行模块注册、权重变更、治理转移 | 0.5 天 |
-| P0-10 | 引入 Timelock 延迟关键操作 | 🔴 未开始 | `registerModule`、`updateWeight`、`setModuleActive` 等操作延迟 24-48 小时生效，给用户留反应时间 | 1 天 |
+| P0-10 | 引入 Timelock 延迟关键操作 | 🟢 已实现 | `scheduleRegisterModule` / `executeRegisterModule`、`scheduleUpdateWeight` / `executeUpdateWeight` 已实现 24h Timelock；opHash 在 execute 时重新验证参数一致性 | 1 天 |
 
 ---
 
@@ -127,9 +127,9 @@
 如果你是唯一开发者，建议按以下顺序推进：
 
 ### Week 1：安全与主网
-- P0-08 Pausable
+- ~~P0-08 Pausable~~ ✅
+- ~~P0-10 Timelock~~ ✅
 - P0-09 Multisig
-- P0-10 Timelock
 - P0-05 主网支持
 
 ### Week 2：自动化 keeper

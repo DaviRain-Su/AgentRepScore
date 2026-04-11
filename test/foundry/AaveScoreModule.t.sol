@@ -111,4 +111,18 @@ contract AaveScoreModuleTest is Test {
         aaveModule.acceptGovernanceTransfer();
         assertEq(aaveModule.governance(), newGov);
     }
+
+    function test_Pause_SubmitWalletMetaBlocked() public {
+        aaveModule.pause();
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(AaveScoreModule.ContractPaused.selector));
+        aaveModule.submitWalletMeta(wallet, 0, 1);
+    }
+
+    function test_Pause_Unpause() public {
+        aaveModule.pause();
+        assertTrue(aaveModule.paused());
+        aaveModule.unpause();
+        assertFalse(aaveModule.paused());
+    }
 }

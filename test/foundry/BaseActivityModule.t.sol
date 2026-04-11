@@ -87,4 +87,18 @@ contract BaseActivityModuleTest is Test {
         vm.expectRevert(abi.encodeWithSelector(BaseActivityModule.UnauthorizedKeeper.selector, address(0xdead)));
         baseModule.submitActivitySummary(wallet, BaseActivityModule.ActivitySummary(0, 0, 0, 0, 0, 0));
     }
+
+    function test_Pause_SubmitActivitySummaryBlocked() public {
+        baseModule.pause();
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(BaseActivityModule.ContractPaused.selector));
+        baseModule.submitActivitySummary(wallet, BaseActivityModule.ActivitySummary(0, 0, 0, 0, 0, 0));
+    }
+
+    function test_Pause_Unpause() public {
+        baseModule.pause();
+        assertTrue(baseModule.paused());
+        baseModule.unpause();
+        assertFalse(baseModule.paused());
+    }
 }

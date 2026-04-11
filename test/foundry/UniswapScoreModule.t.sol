@@ -101,4 +101,18 @@ contract UniswapScoreModuleTest is Test {
         vm.expectRevert(abi.encodeWithSelector(UniswapScoreModule.UnauthorizedKeeper.selector, address(0xdead)));
         uniModule.submitSwapSummary(wallet, UniswapScoreModule.SwapSummary(0, 0, 0, 0, 0, false, 0, 0));
     }
+
+    function test_Pause_SubmitSwapSummaryBlocked() public {
+        uniModule.pause();
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(UniswapScoreModule.ContractPaused.selector));
+        uniModule.submitSwapSummary(wallet, UniswapScoreModule.SwapSummary(0, 0, 0, 0, 0, false, 0, 0));
+    }
+
+    function test_Pause_Unpause() public {
+        uniModule.pause();
+        assertTrue(uniModule.paused());
+        uniModule.unpause();
+        assertFalse(uniModule.paused());
+    }
 }
