@@ -20,3 +20,22 @@ Tool: pi
   - When creating new runnable scripts in `scripts/`, always wrap the `main()` call with `isMainModule()` so vitest can import the module without side-effects.
   - Uniswap V3 Swap events contain `sqrtPriceX96` which can be converted to an implied price ratio using `(sqrtPriceX96^2) / 2^192` — useful for slippage approximations in the indexer.
 ---
+
+## 2026-04-12 01:20 CST - US-002
+Tool: pi
+- Implemented `scripts/keeper-daemon.ts`, a `setInterval`-based scheduled daemon that auto-runs keeper submissions every 5 minutes (configurable via `DAEMON_INTERVAL_MS`).
+- Created `scripts/keeper-aave.ts` to fill the missing wallet-meta keeper gap; it submits `liquidationCount` and `suppliedAssetCount` to `AaveScoreModule`.
+- The daemon discovers which keepers to run based on `.env` configuration:
+  - Swap: `UNISWAP_MODULE` + `UNISWAP_POOLS` → `indexer-uniswap.ts`
+  - Activity: `BASE_MODULE` + OKX credentials → `keeper-oklink.ts`, otherwise `keeper-rpc.ts`
+  - Wallet Meta: `AAVE_MODULE` → `keeper-aave.ts`
+- Added `test/skill/keeper-daemon.test.ts` covering `parseWallets` and `buildKeeperCommands` logic.
+- Updated `.env.example` with `WALLETS` and `DAEMON_INTERVAL_MS` placeholders.
+- Added README section under Keeper scripts explaining how to start/stop the daemon.
+- Added `isMainModule()` guard pattern note to root `AGENTS.md`.
+- Files changed: `scripts/keeper-daemon.ts`, `scripts/keeper-aave.ts`, `test/skill/keeper-daemon.test.ts`, `.env.example`, `README.md`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - When building a daemon that wraps existing scripts, spawning `npx tsx scripts/...` with `stdio: "inherit"` is the lowest-friction approach because it reuses the existing keeper CLIs without refactoring their `process.exit` flows.
+  - `buildKeeperCommands` accepts an optional `env` parameter so tests can inject configuration without mutating global `process.env`.
+  - There was no existing Aave wallet-meta keeper; when the acceptance criteria reference "existing keeper logic" that doesn't yet exist, create the missing keeper script as part of the story.
+---
