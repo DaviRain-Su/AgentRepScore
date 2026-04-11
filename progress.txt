@@ -9,6 +9,22 @@
 Started: 2026年 4月11日 星期六 23时28分07秒 CST
 ---
 
+## 2026-04-12 01:45 CST - US-004
+Tool: pi
+- Migrated contract governance to a Safe-compatible multisig by updating deployment scripts and adding Foundry tests.
+- Created `contracts/mocks/MockMultisig.sol`, a lightweight 2-of-3 multisig mock that approves and executes arbitrary calls. It emits `Approved`/`Executed` events and reverts on insufficient approvals or failed executions.
+- Added `test/foundry/MultisigGovernance.t.sol` with 6 tests demonstrating that `scheduleRegisterModule`, `executeRegisterModule`, `scheduleUpdateWeight`, `executeUpdateWeight`, `initiateGovernanceTransfer`, `pause`, and `setEvaluator` all work when `governance` is the mock multisig address.
+- Updated `scripts/deploy-mainnet.ts` and `scripts/redeploy-validator-testnet.ts` to read `GOVERNANCE_SAFE` from `.env` and pass it as the initial `governance_` constructor argument (falling back to `deployer` when unset).
+- Updated `.env.example` with a `GOVERNANCE_SAFE=` placeholder.
+- Updated root `AGENTS.md` with governance-multisig patterns.
+- All quality checks pass: `forge test` (83 tests), `pnpm tsc --noEmit`, `npx vitest run test/skill/` (55 tests).
+- Files changed: `contracts/mocks/MockMultisig.sol`, `test/foundry/MultisigGovernance.t.sol`, `scripts/deploy-mainnet.ts`, `scripts/redeploy-validator-testnet.ts`, `.env.example`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - `AgentRepValidator` does not need code changes to support a Gnosis Safe as governance; any address with `onlyGovernance` checks is automatically compatible. The migration is purely a deployment-level change.
+  - For Foundry tests, a simple `_multisigExecute(target, data)` helper that calls `approve` twice and then `execute` on `MockMultisig` keeps multisig test code concise and readable.
+  - Deployment scripts currently use `ethers` v6 (`JsonRpcProvider`, `ContractFactory`). When adding new constructor args or env vars, remember to update both `deploy-mainnet.ts` and `redeploy-validator-testnet.ts` to keep deployment paths consistent.
+---
+
 ## 2026-04-11 23:55 CST - US-001
 Tool: pi
 - Implemented `scripts/indexer-uniswap.ts` that listens to Uniswap V3 `Swap` events from pools configured via `UNISWAP_POOLS` env var on X Layer testnet.

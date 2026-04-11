@@ -14,6 +14,7 @@ const RPC_URL = process.env.XLAYER_TESTNET_RPC || "https://testrpc.xlayer.tech";
 const IDENTITY_REGISTRY = process.env.IDENTITY_REGISTRY || "";
 const REPUTATION_REGISTRY = process.env.REPUTATION_REGISTRY || "";
 const VALIDATION_REGISTRY = process.env.VALIDATION_REGISTRY || "0x0000000000000000000000000000000000000000";
+const GOVERNANCE_SAFE = process.env.GOVERNANCE_SAFE || "";
 const AAVE_MODULE = process.env.AAVE_MODULE || "";
 const UNISWAP_MODULE = process.env.UNISWAP_MODULE || "";
 const BASE_MODULE = process.env.BASE_MODULE || "";
@@ -40,6 +41,7 @@ async function main() {
   const provider = new JsonRpcProvider(RPC_URL);
   const wallet = new Wallet(PRIVATE_KEY, provider);
   const deployer = wallet.address;
+  const governance = GOVERNANCE_SAFE || deployer;
 
   console.log("Redeploying AgentRepValidator to X Layer Sepolia with account:", deployer);
   const balance = await provider.getBalance(deployer);
@@ -52,10 +54,11 @@ async function main() {
     IDENTITY_REGISTRY,
     REPUTATION_REGISTRY,
     VALIDATION_REGISTRY,
-    deployer
+    governance
   );
   await validator.waitForDeployment();
   const validatorAddress = await validator.getAddress();
+  console.log("Governance address:", governance);
   console.log("AgentRepValidator deployed to:", validatorAddress);
 
   // Register modules

@@ -15,6 +15,7 @@ const AAVE_POOL = process.env.AAVE_POOL || "";
 const IDENTITY_REGISTRY = process.env.IDENTITY_REGISTRY || "";
 const REPUTATION_REGISTRY = process.env.REPUTATION_REGISTRY || "";
 const VALIDATION_REGISTRY = process.env.VALIDATION_REGISTRY || "0x0000000000000000000000000000000000000000";
+const GOVERNANCE_SAFE = process.env.GOVERNANCE_SAFE || "";
 
 function loadArtifact(name: string): { abi: any; bytecode: string } {
   // Determine subdirectory: modules/ for module contracts, root for AgentRepValidator
@@ -49,6 +50,7 @@ async function main() {
   const provider = new JsonRpcProvider(RPC_URL);
   const wallet = new Wallet(PRIVATE_KEY, provider);
   const deployer = wallet.address;
+  const governance = GOVERNANCE_SAFE || deployer;
 
   console.log("Deploying to X Layer mainnet with account:", deployer);
   const balance = await provider.getBalance(deployer);
@@ -67,10 +69,11 @@ async function main() {
     IDENTITY_REGISTRY,
     REPUTATION_REGISTRY,
     VALIDATION_REGISTRY,
-    deployer
+    governance
   );
   await validator.waitForDeployment();
   const validatorAddress = await validator.getAddress();
+  console.log("Governance address:", governance);
   console.log("AgentRepValidator deployed to:", validatorAddress);
 
   // 3. Bootstrap register modules in validator (must be within 1 hour of deployment)

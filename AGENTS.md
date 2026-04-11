@@ -13,3 +13,5 @@
 - **Script entry guard**: All new CLI scripts in `scripts/` should use `isMainModule()` (same pattern as `src/cli.ts` and `src/server.ts`) to prevent accidental execution during test imports.
 - **Keeper submission utilities**: Use `src/skill/keeper-utils.ts` for all on-chain `submit*` calls. It provides exponential-backoff retry (`submitWithRetry`), evidence-hash deduplication (`isAlreadySubmitted`), and local state persistence (`loadKeeperState` / `saveKeeperState`).
 - **Keeper state file**: The local deduplication state file path defaults to `.keeper-state.json` and can be overridden with the `KEEPER_STATE_PATH` env var.
+- **Governance multisig support**: Deployment scripts (`scripts/deploy-mainnet.ts`, `scripts/redeploy-validator-testnet.ts`) read `GOVERNANCE_SAFE` from `.env` and use it as the validator's initial governance address. If unset, they fall back to the deployer address.
+- **Mock multisig for testing**: `contracts/mocks/MockMultisig.sol` provides a 2-of-3 multisig suitable for Foundry tests that need to demonstrate governance operations executed through a Safe-like contract.
