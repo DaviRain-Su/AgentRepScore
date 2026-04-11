@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildSwapSummary,
+  detectWashTrade,
   parsePools,
   type SwapEvent,
 } from "../../scripts/indexer-uniswap";
@@ -104,5 +105,73 @@ describe("indexer-uniswap", () => {
     ];
     const summary = buildSwapSummary(wallet, events, {});
     expect(summary.swapCount).toBe(1n);
+  });
+
+  describe("detectWashTrade", () => {
+    it("returns false when there are no events", () => {
+      expect(detectWashTrade([])).toBe(false);
+    });
+
+    it("returns false when there is only one swap", () => {
+      const events: SwapEvent[] = [
+        makeEvent({ amount0: 1000n, amount1: -900n, blockNumber: 100n }),
+      ];
+      expect(detectWashTrade(events)).toBe(false);
+    });
+
+    it("returns false when swaps have the same sign pattern", () => {
+      const events: SwapEvent[] = [
+        makeEvent({ amount0: 1000n, amount1: -900n, blockNumber: 100n }),
+        makeEvent({
+          amount0: 2000n,
+          amount1: -1800n,
+          blockNumber: 101n,
+          transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222",
+        }),
+      ];
+      expect(detectWashTrade(events)).toBe(false);
+    });
+
+    it("returns true for A→B followed by B→A within 10 blocks", () => {
+      const events: SwapEvent[] = [
+        // Swap A→B: amount0 out (negative), amount1 in (positive)
+        makeEvent({ amount0: -1000n, amount1: 900n, blockNumber: 100n }),
+        // Swap B→A: amount0 in (positive), amount1 out (negative)
+        makeEvent({
+          amount0: 900n,
+          amount1: -1000n,
+          blockNumber: 105n,
+          transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222",
+        }),
+      ];
+      expect(detectWashTrade(events)).toBe(true);
+    });
+
+    it("returns false when A→B and B→A are more than 10 blocks apart", () => {
+      const events: SwapEvent[] = [
+        makeEvent({ amount0: -1000n, amount1: 900n, blockNumber: 100n }),
+        makeEvent({
+          amount0: 900n,
+          amount1: -1000n,
+          blockNumber: 111n,
+          transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222",
+        }),
+      ];
+      expect(detectWashTrade(events)).toBe(false);
+    });
+
+    it("buildSwapSummary sets washTradeFlag true when wash trade is detected", () => {
+      const events: SwapEvent[] = [
+        makeEvent({ amount0: -1000n, amount1: 900n, blockNumber: 100n }),
+        makeEvent({
+          amount0: 900n,
+          amount1: -1000n,
+          blockNumber: 102n,
+          transactionHash: "0x2222222222222222222222222222222222222222222222222222222222222222",
+        }),
+      ];
+      const summary = buildSwapSummary(wallet, events, {});
+      expect(summary.washTradeFlag).toBe(true);
+    });
   });
 });

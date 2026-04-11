@@ -179,6 +179,28 @@ export async function fetchSwapEvents(
   return events;
 }
 
+export function detectWashTrade(events: SwapEvent[]): boolean {
+  const sorted = [...events].sort((a, b) => Number(a.blockNumber - b.blockNumber));
+  for (let i = 0; i < sorted.length; i++) {
+    const first = sorted[i];
+    for (let j = i + 1; j < sorted.length; j++) {
+      const second = sorted[j];
+      if (second.blockNumber - first.blockNumber > 10n) break;
+      // A→B→A: signs of amount0 and amount1 must flip between the two swaps
+      const amount0Flips =
+        (first.amount0 > 0n && second.amount0 < 0n) ||
+        (first.amount0 < 0n && second.amount0 > 0n);
+      const amount1Flips =
+        (first.amount1 > 0n && second.amount1 < 0n) ||
+        (first.amount1 < 0n && second.amount1 > 0n);
+      if (amount0Flips && amount1Flips) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function buildSwapSummary(
   wallet: Address,
   allEvents: SwapEvent[],
@@ -214,11 +236,12 @@ export function buildSwapSummary(
   }
 
   const avgSlippageBps = swapCount > 0n ? totalSlippageBps / swapCount : 0n;
+  const washTradeFlag = detectWashTrade(walletEvents);
   const now = BigInt(Math.floor(Date.now() / 1000));
 
   const evidenceHash = keccak256(
     toBytes(
-      `uniswap-indexer:${walletLower}:${swapCount}:${volumeUSD}:${netPnL}:${avgSlippageBps}:false:${now}`
+      `uniswap-indexer:${walletLower}:${swapCount}:${volumeUSD}:${netPnL}:${avgSlippageBps}:${washTradeFlag}:${now}`
     )
   );
 
@@ -228,7 +251,7 @@ export function buildSwapSummary(
     netPnL,
     avgSlippageBps,
     feeToPnlRatioBps: 0n,
-    washTradeFlag: false,
+    washTradeFlag,
     timestamp: now,
     evidenceHash,
   };
