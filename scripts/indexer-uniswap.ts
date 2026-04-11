@@ -21,6 +21,13 @@ import { xLayerTestnet } from "viem/chains";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as dotenv from "dotenv";
+import {
+  loadKeeperState,
+  isAlreadySubmitted,
+  recordSubmission,
+  saveKeeperState,
+  submitWithRetry,
+} from "../src/skill/keeper-utils.ts";
 
 dotenv.config();
 
@@ -359,6 +366,12 @@ async function main() {
     process.exit(1);
   }
 
+  const state = loadKeeperState();
+  if (isAlreadySubmitted(state, "uniswap", wallet, summary.evidenceHash)) {
+    console.log("Swap summary already submitted for this wallet/evidence. Skipping.");
+    process.exit(0);
+  }
+
   console.log("\nSubmitting to UniswapScoreModule...");
 
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
@@ -368,22 +381,33 @@ async function main() {
     transport: http(RPC_URL),
   });
 
-  const txHash = await walletClient.writeContract({
-    address: UNISWAP_MODULE as Address,
-    abi: submitSwapSummaryAbi,
-    functionName: "submitSwapSummary",
-    args: [wallet, summary],
-  });
-
-  console.log(`Transaction submitted: ${txHash}`);
-
-  const receipt = await publicClient.waitForTransactionReceipt({
-    hash: txHash,
-    timeout: 60_000,
-  });
+  const receipt = await submitWithRetry(
+    async () => {
+      const txHash = await walletClient.writeContract({
+        address: UNISWAP_MODULE as Address,
+        abi: submitSwapSummaryAbi,
+        functionName: "submitSwapSummary",
+        args: [wallet, summary],
+      });
+      console.log(`Transaction submitted: ${txHash}`);
+      return publicClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: 60_000,
+      });
+    },
+    { label: "submitSwapSummary", maxRetries: 3 }
+  );
 
   if (receipt.status === "success") {
     console.log(`Swap summary submitted successfully (block ${receipt.blockNumber})`);
+    const newState = recordSubmission(
+      state,
+      "uniswap",
+      wallet,
+      summary.evidenceHash,
+      receipt.blockNumber
+    );
+    saveKeeperState(newState);
   } else {
     console.error("Transaction reverted!");
     process.exit(1);

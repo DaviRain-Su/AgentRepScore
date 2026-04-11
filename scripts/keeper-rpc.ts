@@ -22,7 +22,16 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { xLayerTestnet } from "viem/chains";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import * as dotenv from "dotenv";
+import {
+  loadKeeperState,
+  isAlreadySubmitted,
+  recordSubmission,
+  saveKeeperState,
+  submitWithRetry,
+} from "../src/skill/keeper-utils.ts";
 
 dotenv.config();
 
@@ -322,6 +331,12 @@ async function main() {
     process.exit(0);
   }
 
+  const state = loadKeeperState();
+  if (isAlreadySubmitted(state, "activity", wallet, evidenceHash)) {
+    console.log("Activity summary already submitted for this wallet/evidence. Skipping.");
+    process.exit(0);
+  }
+
   console.log("\nSubmitting to BaseActivityModule...");
 
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
@@ -331,29 +346,43 @@ async function main() {
     transport: http(RPC_URL),
   });
 
-  const txHash = await walletClient.writeContract({
-    address: BASE_MODULE as Address,
-    abi: baseModuleAbi,
-    functionName: "submitActivitySummary",
-    args: [wallet, summary],
-  });
-
-  console.log(`Transaction submitted: ${txHash}`);
-
-  const receipt = await publicClient.waitForTransactionReceipt({
-    hash: txHash,
-    timeout: 60_000,
-  });
+  const receipt = await submitWithRetry(
+    async () => {
+      const txHash = await walletClient.writeContract({
+        address: BASE_MODULE as Address,
+        abi: baseModuleAbi,
+        functionName: "submitActivitySummary",
+        args: [wallet, summary],
+      });
+      console.log(`Transaction submitted: ${txHash}`);
+      return publicClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: 60_000,
+      });
+    },
+    { label: "submitActivitySummary", maxRetries: 3 }
+  );
 
   if (receipt.status === "success") {
     console.log(`Activity summary submitted successfully (block ${receipt.blockNumber})`);
+    const newState = recordSubmission(state, "activity", wallet, evidenceHash, receipt.blockNumber);
+    saveKeeperState(newState);
   } else {
     console.error("Transaction reverted!");
     process.exit(1);
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+function isMainModule() {
+  if (!import.meta.url.startsWith("file:")) return false;
+  const modulePath = realpathSync(fileURLToPath(import.meta.url));
+  const argvPath = process.argv[1] ? realpathSync(process.argv[1]) : "";
+  return modulePath === argvPath;
+}
+
+if (isMainModule()) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

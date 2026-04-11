@@ -4,12 +4,19 @@
  * Usage:
  *   npx tsx scripts/keeper-aave.ts --wallet=0x... [--liquidation-count=N] [--supplied-asset-count=N] [--dry-run]
  */
-import { createWalletClient, createPublicClient, http, type Address } from "viem";
+import { createWalletClient, createPublicClient, http, keccak256, toBytes, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { xLayerTestnet } from "viem/chains";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as dotenv from "dotenv";
+import {
+  loadKeeperState,
+  isAlreadySubmitted,
+  recordSubmission,
+  saveKeeperState,
+  submitWithRetry,
+} from "../src/skill/keeper-utils.ts";
 
 dotenv.config();
 
@@ -90,6 +97,19 @@ async function main() {
     process.exit(0);
   }
 
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  const evidenceHash = keccak256(
+    toBytes(
+      `aave-wallet-meta:${wallet.toLowerCase()}:${liquidationCount}:${suppliedAssetCount}:${now}`
+    )
+  );
+
+  const state = loadKeeperState();
+  if (isAlreadySubmitted(state, "aave", wallet, evidenceHash)) {
+    console.log("Aave wallet meta already submitted for this wallet/evidence. Skipping.");
+    process.exit(0);
+  }
+
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
   const walletClient = createWalletClient({
     account,
@@ -97,27 +117,32 @@ async function main() {
     transport: http(RPC_URL),
   });
 
-  const txHash = await walletClient.writeContract({
-    address: AAVE_MODULE as Address,
-    abi: aaveModuleAbi,
-    functionName: "submitWalletMeta",
-    args: [wallet, liquidationCount, suppliedAssetCount],
-  });
-
-  console.log(`Transaction submitted: ${txHash}`);
-
   const publicClient = createPublicClient({
     chain: xLayerTestnet,
     transport: http(RPC_URL),
   });
 
-  const receipt = await publicClient.waitForTransactionReceipt({
-    hash: txHash,
-    timeout: 60_000,
-  });
+  const receipt = await submitWithRetry(
+    async () => {
+      const txHash = await walletClient.writeContract({
+        address: AAVE_MODULE as Address,
+        abi: aaveModuleAbi,
+        functionName: "submitWalletMeta",
+        args: [wallet, liquidationCount, suppliedAssetCount],
+      });
+      console.log(`Transaction submitted: ${txHash}`);
+      return publicClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: 60_000,
+      });
+    },
+    { label: "submitWalletMeta", maxRetries: 3 }
+  );
 
   if (receipt.status === "success") {
     console.log(`Wallet meta submitted successfully (block ${receipt.blockNumber})`);
+    const newState = recordSubmission(state, "aave", wallet, evidenceHash, receipt.blockNumber);
+    saveKeeperState(newState);
   } else {
     console.error("Transaction reverted!");
     process.exit(1);

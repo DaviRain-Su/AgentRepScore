@@ -1,5 +1,7 @@
 ## Codebase Patterns
 - **Script entry guard**: All new CLI scripts in `scripts/` should use `isMainModule()` (same pattern as `src/cli.ts` and `src/server.ts`) to prevent accidental execution during test imports.
+- **Keeper submission utilities**: Use `src/skill/keeper-utils.ts` for all on-chain `submit*` calls. It provides exponential-backoff retry (`submitWithRetry`), evidence-hash deduplication (`isAlreadySubmitted`), and local state persistence (`loadKeeperState` / `saveKeeperState`).
+- **Keeper state file**: The local deduplication state file path defaults to `.keeper-state.json` and can be overridden with the `KEEPER_STATE_PATH` env var.
 - **Testnet RPC sensitivity**: `test/hardhat/integration.test.ts` runs against live X Layer testnet and will timeout/hang if the RPC is slow or unreachable. This can block `pnpm test:all` even when local/unit changes are correct.
 - **Pool address configuration**: Uniswap V3 pool addresses are not hardcoded; they must be supplied via `UNISWAP_POOLS` env var as comma-separated addresses.
 
@@ -38,4 +40,22 @@ Tool: pi
   - When building a daemon that wraps existing scripts, spawning `npx tsx scripts/...` with `stdio: "inherit"` is the lowest-friction approach because it reuses the existing keeper CLIs without refactoring their `process.exit` flows.
   - `buildKeeperCommands` accepts an optional `env` parameter so tests can inject configuration without mutating global `process.env`.
   - There was no existing Aave wallet-meta keeper; when the acceptance criteria reference "existing keeper logic" that doesn't yet exist, create the missing keeper script as part of the story.
+---
+
+## 2026-04-12 01:40 CST - US-003
+Tool: pi
+- Created `src/skill/keeper-utils.ts` providing reusable `submitWithRetry` (exponential backoff, up to 3 retries), `isAlreadySubmitted` / `recordSubmission` for evidence-hash deduplication, and `loadKeeperState` / `saveKeeperState` for local JSON state persistence.
+- Refactored all four keeper scripts to use the shared utilities:
+  - `scripts/indexer-uniswap.ts` — checks deduplication before `submitSwapSummary` and records `receipt.blockNumber` on success
+  - `scripts/keeper-oklink.ts` — same pattern for `submitActivitySummary`; also added missing `isMainModule()` guard
+  - `scripts/keeper-rpc.ts` — same pattern for `submitActivitySummary`; also added missing `isMainModule()` guard
+  - `scripts/keeper-aave.ts` — computes a local `evidenceHash` from inputs (since `submitWalletMeta` has no on-chain evidence field), then deduplicates and records state
+- Added `KEEPER_STATE_PATH` to `.env.example` (defaults to `.keeper-state.json`).
+- Added `test/skill/keeper-utils.test.ts` with 12 tests covering state load/save, deduplication, hash cap (100 entries), retry success/failure, and sleep.
+- All quality checks pass: `pnpm tsc --noEmit`, `npx vitest run` (58 tests), `forge test` (77 tests).
+- Files changed: `src/skill/keeper-utils.ts`, `scripts/indexer-uniswap.ts`, `scripts/keeper-oklink.ts`, `scripts/keeper-rpc.ts`, `scripts/keeper-aave.ts`, `test/skill/keeper-utils.test.ts`, `.env.example`, `AGENTS.md`, `prd.json`
+- **Learnings for future iterations:**
+  - `keeper-oklink.ts` and `keeper-rpc.ts` were missing `isMainModule()` guards; any runnable script in `scripts/` must have it so vitest can import the module safely.
+  - For keeper deduplication, the `evidenceHash` already present in summary structs is the perfect unique key. When a module lacks an evidence field (e.g., `AaveScoreModule.submitWalletMeta`), compute a local keccak256 hash from the normalized arguments.
+  - Centralizing retry + deduplication in `src/skill/keeper-utils.ts` keeps individual keeper scripts focused on data gathering while ensuring consistent resilience across all submission paths.
 ---
