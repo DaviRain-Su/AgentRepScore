@@ -1,0 +1,26 @@
+{
+  "name": "AgentRepScore",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.3",
+    "@types/node": "^25.6.0",
+    "@vitest/ui": "^4.1.4",
+    "dotenv": "^17.4.1",
+    "ethers": "6",
+    "hardhat": "^3.3.0",
+    "solhint": "^6.2.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2",
+    "viem": "^2.47.12",
+    "vitest": "^4.1.4"
+  },
+  "type": "module"
+}

@@ -1,0 +1,188 @@
+# AgentRepScore
+
+> DeFi Agent 的链上 eval 系统 —— 基于 ERC-8004 的 X Layer 声誉评分 Skill
+
+## X Layer Sepolia 测试网部署
+
+| 合约 | 地址 |
+|------|------|
+| IdentityRegistry (ERC-8004) | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
+| ReputationRegistry (ERC-8004) | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
+| AgentRepValidator | `0x8A924C10fD2f789c323BbB06bf747caEfE9F6efb` |
+| AaveScoreModule | `0xEBe2ee03047A0f90e96bb75be3044403300cc9B0` *(disabled on testnet)* |
+| UniswapScoreModule | `0xe982007093F0A7f50a9dA0e4361A7311E2FbCdB5` |
+| BaseActivityModule | `0xfD8755EeBb6E879562037fdf0aA087FC43A0fe83` |
+
+*AaveScoreModule 因在测试网上 Aave Pool 未部署而被 governance 禁用，不影响 Uniswap + Activity 模块的评分。*
+
+## 快速开始
+
+```bash
+pnpm install
+# 配置 .env
+cp .env.example .env
+# 编辑 .env，填入 PRIVATE_KEY
+```
+
+## 编译与测试
+
+```bash
+# Foundry
+forge build
+forge test
+
+# Hardhat
+npx hardhat compile
+
+# Integration test (testnet)
+npx vitest run test/hardhat/integration.test.ts
+```
+
+## Keeper Mock 脚本
+
+向链上模块提交模拟的 DeFi 数据（需要 PRIVATE_KEY 对应的地址已是 module keeper）：
+
+```bash
+# 优质 Agent 资料
+npx ts-node scripts/keeper-mock.ts \
+  --wallet=0xYOUR_WALLET \
+  --profile=good
+
+# 洗盘交易资料
+npx ts-node scripts/keeper-mock.ts \
+  --wallet=0xYOUR_WALLET \
+  --profile=wash
+
+# 用 CLI flag 覆盖任意字段（volumeUSD 单位为 USD，脚本自动乘 1e6）
+npx ts-node scripts/keeper-mock.ts \
+  --wallet=0xYOUR_WALLET \
+  --profile=good \
+  --swapCount=200 \
+  --volumeUSD=100000 \
+  --washTradeFlag=false
+```
+
+## Skill 命令示例
+
+### `rep:register`
+注册新 Agent（MVP 仅支持 self-registration，即 wallet 必须等于调用者地址）：
+
+```ts
+import { register } from "./src/skill";
+
+const { agentId, txHash } = await register({
+  wallet: "0x067aBc270C4638869Cd347530Be34cBdD93D0EA1",
+  capabilities: ["swap", "lend"],
+  uri: "https://example.com/agent.json",
+});
+```
+
+### `rep:evaluate`
+触发链上评估并返回最新评分：
+
+```ts
+import { evaluate } from "./src/skill";
+
+const result = await evaluate({ agentId: "8" });
+// result.rawScore = 8807
+// result.decayedScore = 8805
+// result.trustTier = "elite"
+// result.moduleBreakdown = [
+//   { name: "UniswapScoreModule", score: 9000, weight: 4000 },
+//   { name: "BaseActivityModule", score: 8500, weight: 2500 },
+// ]
+```
+
+### `rep:query`
+查询存储分数并应用时间衰减：
+
+```ts
+import { query } from "./src/skill";
+
+const result = await query({ agentId: "8" });
+```
+
+### `rep:compare`
+多 Agent 对比排序：
+
+```ts
+import { compare } from "./src/skill";
+
+const ranked = await compare({ agentIds: ["8", "10"] });
+// Agent 8:  decayed=8805, tier=elite
+// Agent 10: decayed=2876, tier=basic
+```
+
+也可用脚本直接运行：
+
+```bash
+npx ts-node scripts/demo-compare.ts 8 10
+```
+
+### `rep:modules`
+列出已注册的评分模块及权重：
+
+```ts
+import { modules } from "./src/skill";
+
+const { modules: list } = await modules();
+```
+
+## E2E 测试网流程
+
+一键跑通完整端到端测试：
+
+```bash
+npx ts-node scripts/e2e-test.ts
+```
+
+输出示例（Agent 8，good profile）：
+
+```
+1. Registering agent on IdentityRegistry...
+   Agent ID: 8
+2. Setting agent wallet...
+3. Calling evaluateAgent...
+4. Querying latest score...
+   Score: 8807
+5. Querying module scores...
+   UniswapScoreModule: score=9000, conf=100
+   BaseActivityModule: score=8500, conf=100
+6. Verifying ReputationRegistry feedback...
+   Feedback count: 1
+   Summary value: 8807
+✅ End-to-end test PASSED
+```
+
+## Demo 结果
+
+已验证的评分对比（同一钱包，不同 Keeper 资料）：
+
+| Agent | Profile | Raw Score | Tier |
+|-------|---------|-----------|------|
+| 8 | good | **8807** | elite |
+| 10 | wash | **2876** | basic |
+
+模块评分拆解：
+- **good**: Uniswap=9000 (高交易量+正PnL+低滑点), Activity=8500 (长钱包龄+高交易数+多对手方)
+- **wash**: Uniswap=1800 (负PnL+高滑点+洗盘标记), Activity=4600 (低对手方+近期不活跃)
+
+## 目录结构
+
+```
+contracts/       # Solidity 合约
+src/             # TypeScript Skill 实现
+scripts/         # 部署脚本 + E2E + Demo
+test/            # Foundry + vitest 集成测试
+```
+
+## 核心合约
+
+- `AgentRepValidator.sol` — 主合约，模块管理与评分聚合
+- `AaveScoreModule.sol` — Aave 借贷评分
+- `UniswapScoreModule.sol` — Uniswap 交易评分
+- `BaseActivityModule.sol` — 链上活动评分
+
+## 许可证
+
+MIT
