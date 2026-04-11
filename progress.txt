@@ -64,3 +64,20 @@ Tool: pi
   - Missing required options in Commander throw via `exitOverride` as a generic error; test for rejection rather than a specific substring.
   - `bin/rep.mjs` spawns a fresh Node process with `--import tsx` to handle `.ts` imports without pre-compilation, since the project uses `noEmit` in `tsconfig.json`.
 ---
+
+## 2026-04-11 23:08 CST - API-002
+Tool: pi
+- Created `openapi.json` with full OpenAPI 3.0.3 spec documenting `/register`, `/evaluate`, `/query`, `/compare`, `/modules`, and `/health` endpoints.
+- Created `src/server.ts` using Express that exposes the skill commands as REST endpoints and serves Swagger UI at `/docs` (plus raw spec at `/api-docs.json`).
+- Added `supertest`-based unit tests in `test/skill/server.test.ts` covering all endpoints, health check, swagger UI serving, and error handling.
+- Added `express`, `swagger-ui-express`, `supertest`, and corresponding `@types/` packages.
+- Added `server` npm script to `package.json` for running the HTTP API via `node --import tsx src/server.ts`.
+- Verified `pnpm test:all` passes: 30 vitest tests + 77 Foundry tests; `npx tsc --noEmit` clean.
+- Updated root `AGENTS.md` with HTTP API entry point and OpenAPI spec maintenance patterns.
+- Files changed: `openapi.json`, `src/server.ts`, `test/skill/server.test.ts`, `package.json`, `AGENTS.md`, `prd.json`, `progress.txt`
+- **Learnings for future iterations:**
+  - The server reuses the same `isMainModule()` guard as the CLI so the `app` can be exported cleanly for `supertest` tests.
+  - Swagger UI served via `swagger-ui-express` redirects `/docs` to `/docs/`; tests must use `.redirects(1)` when asserting on the UI response.
+  - Express `app` needs an explicit `express.Application` type annotation in `src/server.ts` to avoid a `tsc --noEmit` portability error with nested `@types/express-serve-static-core` types.
+  - Keep `openapi.json` in sync with any endpoint or schema changes; it is the single source of truth for third-party integrations.
+---

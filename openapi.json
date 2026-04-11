@@ -1,0 +1,358 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AgentRepScore API",
+    "description": "HTTP API for AgentRepScore Skill endpoints — register, evaluate, query, compare, and list scoring modules.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": {
+            "description": "API is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/register": {
+      "post": {
+        "summary": "Register a new agent",
+        "operationId": "registerAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agent registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agentId": { "type": "string" },
+                    "txHash": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or registration error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/evaluate": {
+      "post": {
+        "summary": "Evaluate an agent's reputation score on-chain",
+        "operationId": "evaluateAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Evaluation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreOutputWithEvidence"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or evaluation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/query": {
+      "post": {
+        "summary": "Query the latest stored score with decay",
+        "operationId": "queryAgent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Query result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or query error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/compare": {
+      "post": {
+        "summary": "Compare multiple agents",
+        "operationId": "compareAgents",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Comparison result sorted by decayed score",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CompareResultItem"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or comparison error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules": {
+      "get": {
+        "summary": "List scoring modules",
+        "operationId": "listModules",
+        "responses": {
+          "200": {
+            "description": "Module list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModulesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Module fetch error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RegisterInput": {
+        "type": "object",
+        "required": ["wallet", "uri"],
+        "properties": {
+          "wallet": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "description": "Agent wallet address"
+          },
+          "uri": {
+            "type": "string",
+            "description": "Agent metadata URI"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional capability tags (deprecated)"
+          }
+        }
+      },
+      "EvaluateInput": {
+        "type": "object",
+        "required": ["agentId"],
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "description": "Agent ID to evaluate"
+          }
+        }
+      },
+      "QueryInput": {
+        "type": "object",
+        "required": ["agentId"],
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "description": "Agent ID to query"
+          }
+        }
+      },
+      "CompareInput": {
+        "type": "object",
+        "required": ["agentIds"],
+        "properties": {
+          "agentIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of agent IDs to compare"
+          }
+        }
+      },
+      "ScoreOutput": {
+        "type": "object",
+        "properties": {
+          "agentId": { "type": "string" },
+          "wallet": { "type": "string" },
+          "rawScore": { "type": "number" },
+          "decayedScore": { "type": "number" },
+          "trustTier": {
+            "type": "string",
+            "enum": ["untrusted", "basic", "verified", "elite"]
+          },
+          "timestamp": { "type": "integer" },
+          "moduleBreakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleBreakdownItem"
+            }
+          }
+        }
+      },
+      "ScoreOutputWithEvidence": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ScoreOutput" },
+          {
+            "type": "object",
+            "properties": {
+              "evidenceHash": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "ModuleBreakdownItem": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "score": { "type": "number" },
+          "confidence": { "type": "number" },
+          "weight": { "type": "number" }
+        }
+      },
+      "CompareResultItem": {
+        "type": "object",
+        "properties": {
+          "agentId": { "type": "string" },
+          "decayedScore": { "type": "number" },
+          "trustTier": {
+            "type": "string",
+            "enum": ["untrusted", "basic", "verified", "elite"]
+          },
+          "error": { "type": "string" }
+        }
+      },
+      "ModulesOutput": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleItem"
+            }
+          }
+        }
+      },
+      "ModuleItem": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "category": { "type": "string" },
+          "address": { "type": "string" },
+          "weight": { "type": "number" },
+          "active": { "type": "boolean" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}

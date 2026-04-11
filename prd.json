@@ -36,7 +36,7 @@
       "title": "Add OpenAPI documentation for HTTP API",
       "description": "Generate OpenAPI/Swagger documentation for the Skill endpoints to lower integration cost for third-party Agent platforms.",
       "priority": 5,
-      "passes": false
+      "passes": true
     }
   ]
 }
