@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import type { Address } from "viem";
 import { logger } from "./logger.ts";
 
-export type KeeperModule = "uniswap" | "activity" | "aave";
+export type KeeperModule = "uniswap" | "activity";
 
 export interface WalletSubmissionState {
   lastSubmittedBlock: string;
@@ -20,7 +20,6 @@ const DEFAULT_STATE: KeeperState = {
   submissions: {
     uniswap: {},
     activity: {},
-    aave: {},
   },
 };
 

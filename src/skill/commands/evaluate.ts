@@ -1,6 +1,6 @@
 import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { xLayerTestnet } from "viem/chains";
+import { xLayer, xLayerTestnet } from "viem/chains";
 import { config } from "../../config.ts";
 import { EvaluateInput, ScoreOutput } from "../types.ts";
 import { applyDecay, trustTier } from "../../utils/score-decay.ts";
@@ -15,6 +15,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
+const chain = config.network === "mainnet" ? xLayer : xLayerTestnet;
+
 export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { evidenceHash: `0x${string}` }> {
   if (!config.validatorAddress) {
     throw new Error("VALIDATOR_ADDRESS not set");
@@ -27,8 +29,8 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
   const VALIDATOR_ADDRESS = config.validatorAddress as `0x${string}`;
   const account = privateKeyToAccount(config.privateKey as `0x${string}`);
   const transport = http(config.rpc);
-  const walletClient = createWalletClient({ account, chain: xLayerTestnet, transport });
-  const publicClient = createPublicClient({ chain: xLayerTestnet, transport });
+  const walletClient = createWalletClient({ account, chain, transport });
+  const publicClient = createPublicClient({ chain, transport });
 
   const wallet = await publicClient.readContract({
     address: config.identityRegistry as `0x${string}`,

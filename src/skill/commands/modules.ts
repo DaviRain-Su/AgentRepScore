@@ -1,8 +1,10 @@
 import { createPublicClient, http } from "viem";
-import { xLayerTestnet } from "viem/chains";
+import { xLayer, xLayerTestnet } from "viem/chains";
 import { config } from "../../config.ts";
 import { ModulesOutput } from "../types.ts";
 import { validatorAbi } from "../abis.ts";
+
+const chain = config.network === "mainnet" ? xLayer : xLayerTestnet;
 
 export async function modules(): Promise<ModulesOutput> {
   if (!config.validatorAddress) {
@@ -11,7 +13,7 @@ export async function modules(): Promise<ModulesOutput> {
 
   const VALIDATOR_ADDRESS = config.validatorAddress as `0x${string}`;
   const publicClient = createPublicClient({
-    chain: xLayerTestnet,
+    chain,
     transport: http(config.rpc),
   });
 

@@ -1,9 +1,11 @@
 import { createPublicClient, http } from "viem";
-import { xLayerTestnet } from "viem/chains";
+import { xLayer, xLayerTestnet } from "viem/chains";
 import { QueryInput, ScoreOutput } from "../types.ts";
 import { applyDecay, trustTier } from "../../utils/score-decay.ts";
 import { config } from "../../config.ts";
 import { identityRegistryAbi, validatorAbi } from "../abis.ts";
+
+const chain = config.network === "mainnet" ? xLayer : xLayerTestnet;
 
 export async function query(input: QueryInput): Promise<ScoreOutput> {
   if (!config.validatorAddress) {
@@ -12,7 +14,7 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
 
   const VALIDATOR_ADDRESS = config.validatorAddress as `0x${string}`;
   const transport = http(config.rpc);
-  const publicClient = createPublicClient({ chain: xLayerTestnet, transport });
+  const publicClient = createPublicClient({ chain, transport });
 
   const wallet = await publicClient.readContract({
     address: config.identityRegistry as `0x${string}`,

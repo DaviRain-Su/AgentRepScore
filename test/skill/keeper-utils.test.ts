@@ -40,7 +40,7 @@ describe("keeper-utils", () => {
   it("loadKeeperState returns default when file missing", () => {
     const state = loadKeeperState();
     expect(state.version).toBe(1);
-    expect(Object.keys(state.submissions)).toEqual(["uniswap", "activity", "aave"]);
+    expect(Object.keys(state.submissions)).toEqual(["uniswap", "activity"]);
   });
 
   it("saveKeeperState persists and loadKeeperState reads back", () => {

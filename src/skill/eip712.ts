@@ -3,7 +3,8 @@ import {
   type PublicClient,
   type Address,
 } from "viem";
-import { xLayerTestnet } from "viem/chains";
+import { xLayer, xLayerTestnet } from "viem/chains";
+import { config } from "../config.ts";
 
 const nonceAbi = [
   {
@@ -41,11 +42,15 @@ export interface SwapSummary {
   pool: Address;
 }
 
+function getChainId() {
+  return config.network === "mainnet" ? xLayer.id : xLayerTestnet.id;
+}
+
 export function getSwapDomain(moduleAddress: Address) {
   return {
     name: "UniswapScoreModule",
     version: "1",
-    chainId: xLayerTestnet.id,
+    chainId: getChainId(),
     verifyingContract: moduleAddress,
   } as const;
 }
@@ -110,7 +115,7 @@ export function getActivityDomain(moduleAddress: Address) {
   return {
     name: "BaseActivityModule",
     version: "1",
-    chainId: xLayerTestnet.id,
+    chainId: getChainId(),
     verifyingContract: moduleAddress,
   } as const;
 }
@@ -155,47 +160,5 @@ export async function signActivitySummary(
   });
 }
 
-export function getWalletMetaDomain(moduleAddress: Address) {
-  return {
-    name: "AaveScoreModule",
-    version: "1",
-    chainId: xLayerTestnet.id,
-    verifyingContract: moduleAddress,
-  } as const;
-}
-
-export const walletMetaTypes = {
-  WalletMeta: [
-    { name: "wallet", type: "address" },
-    { name: "liquidationCount", type: "uint256" },
-    { name: "suppliedAssetCount", type: "uint256" },
-    { name: "timestamp", type: "uint256" },
-    { name: "nonce", type: "uint256" },
-  ],
-} as const;
-
-export async function signWalletMeta(
-  walletClient: WalletClient,
-  moduleAddress: Address,
-  wallet: Address,
-  liquidationCount: bigint,
-  suppliedAssetCount: bigint,
-  timestamp: bigint,
-  nonce: bigint
-): Promise<`0x${string}`> {
-  return walletClient.signTypedData({
-    account: walletClient.account!,
-    domain: getWalletMetaDomain(moduleAddress),
-    types: walletMetaTypes,
-    primaryType: "WalletMeta",
-    message: {
-      wallet,
-      liquidationCount,
-      suppliedAssetCount,
-      timestamp,
-      nonce,
-    },
-  });
-}
 
 

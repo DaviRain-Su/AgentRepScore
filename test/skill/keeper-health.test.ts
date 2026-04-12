@@ -49,7 +49,7 @@ describe("keeper health", () => {
   it("getMaxSubmittedBlock returns 0 for empty state", () => {
     const state: KeeperState = {
       version: 1,
-      submissions: { uniswap: {}, activity: {}, aave: {} },
+      submissions: { uniswap: {}, activity: {} },
     };
     expect(getMaxSubmittedBlock(state)).toBe(0n);
   });
@@ -72,7 +72,6 @@ describe("keeper health", () => {
             evidenceHashes: [],
           },
         },
-        aave: {},
       },
     };
     expect(getMaxSubmittedBlock(state)).toBe(500n);
@@ -91,7 +90,6 @@ describe("keeper health", () => {
           },
         },
         activity: {},
-        aave: {},
       },
     };
     writeFileSync(TEST_STATE_PATH, JSON.stringify(state));

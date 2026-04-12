@@ -22,7 +22,6 @@ import {
   fetchTransactionsForSybilDetection as fetchTransactionsForSybilDetectionOklink,
   type OkxCredentials,
 } from "./activity-oklink.ts";
-import { submitWalletMeta } from "./aave.ts";
 
 export interface KeeperConfig {
   wallets: Address[];
@@ -30,7 +29,6 @@ export interface KeeperConfig {
   uniswapModule?: string;
   uniswapPools?: string;
   baseModule?: string;
-  aaveModule?: string;
   okxCredentials?: OkxCredentials;
   intervalMs: number;
   alertThreshold: number;
@@ -57,7 +55,6 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): KeeperC
     uniswapModule: env.UNISWAP_MODULE || undefined,
     uniswapPools: env.UNISWAP_POOLS || undefined,
     baseModule: env.BASE_MODULE || undefined,
-    aaveModule: env.AAVE_MODULE || undefined,
     okxCredentials: hasOkx ? { apiKey: okxKey, apiSecret: okxSecret, passphrase: okxPassphrase, projectId: okxProjectId } : undefined,
     intervalMs: Number(env.DAEMON_INTERVAL_MS || "300000"),
     alertThreshold: Number(env.KEEPER_ALERT_THRESHOLD || "3"),
@@ -82,7 +79,6 @@ export async function runRound(
   const pools = cfg.uniswapPools ? parsePools(cfg.uniswapPools) : [];
   const hasUniswap = cfg.uniswapModule && pools.length > 0;
   const hasBase = !!cfg.baseModule;
-  const hasAave = !!cfg.aaveModule;
 
   let sybilFlags = new Map<Address, boolean>();
   if (hasBase && cfg.wallets.length > 0) {
@@ -131,15 +127,6 @@ export async function runRound(
         allSuccess = false;
       }
     }
-
-    if (hasAave) {
-      try {
-        await submitWalletMeta(publicClient, walletClient, wallet, cfg.aaveModule as Address, 0n, 1n);
-      } catch (err) {
-        logger.error("[keeper] Aave submission failed", { wallet, err });
-        allSuccess = false;
-      }
-    }
   }
 
   return allSuccess;
@@ -168,7 +155,6 @@ export async function startDaemon(cfg: KeeperConfig): Promise<void> {
     modules: {
       uniswap: !!cfg.uniswapModule,
       activity: !!cfg.baseModule,
-      aave: !!cfg.aaveModule,
     },
   });
 

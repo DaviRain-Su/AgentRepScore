@@ -1,9 +1,11 @@
 import { createWalletClient, createPublicClient, http, decodeEventLog } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { xLayerTestnet } from "viem/chains";
+import { xLayer, xLayerTestnet } from "viem/chains";
 import { config } from "../../config.ts";
 import { RegisterInput } from "../types.ts";
 import { identityRegistryAbi } from "../abis.ts";
+
+const chain = config.network === "mainnet" ? xLayer : xLayerTestnet;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -21,8 +23,8 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
 
   const account = privateKeyToAccount(config.privateKey as `0x${string}`);
   const transport = http(config.rpc);
-  const walletClient = createWalletClient({ account, chain: xLayerTestnet, transport });
-  const publicClient = createPublicClient({ chain: xLayerTestnet, transport });
+  const walletClient = createWalletClient({ account, chain, transport });
+  const publicClient = createPublicClient({ chain, transport });
 
   const registerHash = await walletClient.writeContract({
     address: config.identityRegistry as `0x${string}`,
@@ -73,7 +75,7 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
     domain: {
       name: "ERC8004IdentityRegistry",
       version: "1",
-      chainId: BigInt(xLayerTestnet.id),
+      chainId: BigInt(chain.id),
       verifyingContract: config.identityRegistry as `0x${string}`,
     },
     types: {
