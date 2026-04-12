@@ -39,7 +39,7 @@
 | P0-01 | 实现链下自动索引器服务 | 🟢 已完成 | BaseActivity: `keeper-rpc.ts` + `keeper-oklink.ts` 已实现。`scripts/indexer-uniswap.ts` 实现 Uniswap V3 Swap 事件索引，支持 `UNISWAP_POOLS` 配置 | 3-5 天 |
 | P0-02 | 索引器自动提交摘要到链上 | 🟢 已完成 | `scripts/keeper-daemon.ts` 实现 `setInterval` 常驻服务，每 5 分钟自动运行 Swap/Activity keeper 提交（间隔可通过 `DAEMON_INTERVAL_MS` 配置）。Aave 模块已移除 | 2-3 天 |
 | P0-03 | 增加提交重试、去重、幂等机制 | 🟢 已完成 | `src/skill/keeper-utils.ts` 提供 `submitWithRetry`（指数退避）、`isAlreadySubmitted` 证据哈希去重、本地状态持久化（`.keeper-state.json`） | 1-2 天 |
-| P0-04 | Keeper 服务监控与告警 | 🔴 未开始 | 记录最后一次成功提交的 blockNumber/timestamp，异常时告警 | 1 天 |
+| P0-04 | Keeper 服务监控与告警 | 🟢 已完成 | `keeper-health.json` 记录最后成功提交的 blockNumber/timestamp；`/health` 端点和 `rep keeper health` CLI 暴露健康状态；daemon 连续失败超阈值时告警 | 1 天 |
 
 ### 3.2 Skill / 集成层：主网支持与可调用入口
 
@@ -80,8 +80,8 @@
 |---|------|------|------|------------|
 | P1-05 | CI 添加 vitest TypeScript 测试步骤 | 🟢 已实现 | `.github/workflows/test.yml` 已添加 vitest 步骤 | 0.5 天 |
 | P1-06 | CI 添加 solhint / Slither SAST 检查 | 🟢 已完成 | `.github/workflows/test.yml` 新增 `slither` job，使用 `crytic/slither-action@v0.4.0`，`fail-on: high` | 1 天 |
-| P1-07 | 建立测试网 + 主网自动部署流水线 | 🔴 未开始 | 通过 GitHub Actions + foundry `forge script` 实现 tag push 自动部署到测试网，manual trigger 部署主网 | 1-2 天 |
-| P1-08 | 合约部署后自动验证源码 | 🔴 未开始 | 集成 OKLink / Etherscan verify API | 0.5 天 |
+| P1-07 | 建立测试网 + 主网自动部署流水线 | 🟢 已完成 | `.github/workflows/deploy.yml`：tag push 自动部署测试网；workflow_dispatch 手动触发部署主网；带 dry_run 选项和 environment 保护 | 1-2 天 |
+| P1-08 | 合约部署后自动验证源码 | 🟢 已完成 | `scripts/verify-contracts.ts` 使用 `forge verify-contract` 支持 OKLink + Blockscout；部署流水线自动触发验证 | 0.5 天 |
 
 ### 4.3 可观测性
 

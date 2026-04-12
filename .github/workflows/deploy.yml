@@ -1,0 +1,179 @@
+name: Deploy
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Target network'
+        required: true
+        type: choice
+        options:
+          - testnet
+          - mainnet
+      dry_run:
+        description: 'Dry run (build only, no deploy)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Forge build
+        run: forge build --sizes
+
+      - name: Forge test
+        run: forge test -vvv
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Vitest
+        run: pnpm vitest run
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-artifacts
+          path: |
+            out/
+            artifacts/
+          retention-days: 30
+
+  deploy-testnet:
+    name: Deploy to testnet
+    needs: build
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.network == 'testnet' && github.event.inputs.dry_run == 'false')
+    environment: testnet
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Forge build
+        run: forge build
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to testnet
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          XLAYER_TESTNET_RPC: ${{ secrets.XLAYER_TESTNET_RPC }}
+          IDENTITY_REGISTRY: ${{ vars.IDENTITY_REGISTRY }}
+          REPUTATION_REGISTRY: ${{ vars.REPUTATION_REGISTRY }}
+          VALIDATION_REGISTRY: ${{ vars.VALIDATION_REGISTRY }}
+          AAVE_MODULE: ${{ vars.AAVE_MODULE }}
+          UNISWAP_MODULE: ${{ vars.UNISWAP_MODULE }}
+          BASE_MODULE: ${{ vars.BASE_MODULE }}
+          GOVERNANCE_SAFE: ${{ vars.GOVERNANCE_SAFE }}
+        run: npx tsx scripts/redeploy-validator-testnet.ts
+
+      - name: Verify source code
+        if: always()
+        env:
+          VALIDATOR_ADDRESS: ${{ vars.VALIDATOR_ADDRESS }}
+          UNISWAP_MODULE: ${{ vars.UNISWAP_MODULE }}
+          BASE_MODULE: ${{ vars.BASE_MODULE }}
+          OKLINK_API_KEY: ${{ secrets.OKLINK_API_KEY }}
+        run: npx tsx scripts/verify-contracts.ts --network=testnet
+        continue-on-error: true
+
+  deploy-mainnet:
+    name: Deploy to mainnet
+    needs: build
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && github.event.inputs.network == 'mainnet' && github.event.inputs.dry_run == 'false'
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Forge build
+        run: forge build
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to mainnet
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          XLAYER_RPC: ${{ secrets.XLAYER_RPC }}
+          IDENTITY_REGISTRY: ${{ vars.IDENTITY_REGISTRY }}
+          REPUTATION_REGISTRY: ${{ vars.REPUTATION_REGISTRY }}
+          VALIDATION_REGISTRY: ${{ vars.VALIDATION_REGISTRY }}
+          AAVE_POOL: ${{ vars.AAVE_POOL }}
+          GOVERNANCE_SAFE: ${{ vars.GOVERNANCE_SAFE }}
+        run: npx tsx scripts/deploy-mainnet.ts
+
+      - name: Verify source code
+        if: always()
+        env:
+          VALIDATOR_ADDRESS: ${{ vars.VALIDATOR_ADDRESS }}
+          UNISWAP_MODULE: ${{ vars.UNISWAP_MODULE }}
+          BASE_MODULE: ${{ vars.BASE_MODULE }}
+          OKLINK_API_KEY: ${{ secrets.OKLINK_API_KEY }}
+        run: npx tsx scripts/verify-contracts.ts --network=mainnet
+        continue-on-error: true
