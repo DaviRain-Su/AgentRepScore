@@ -7,10 +7,10 @@
     "rep": "./bin/rep.mjs"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run test/",
     "test:foundry": "forge test",
-    "test:all": "vitest run && forge test",
-    "ci:local": "forge fmt --check && forge build --sizes && forge test -vvv && vitest run",
+    "test:all": "vitest run test/ && forge test",
+    "ci:local": "forge fmt --check && forge build --sizes && forge test -vvv && vitest run test/",
     "rep:register": "rep register",
     "rep:evaluate": "rep evaluate",
     "rep:query": "rep query",

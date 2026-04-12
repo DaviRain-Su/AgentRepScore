@@ -6,14 +6,11 @@
 
 | 合约 | 地址 |
 |------|------|
-| IdentityRegistry (ERC-8004) | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
-| ReputationRegistry (ERC-8004) | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
+| IdentityRegistry (ERC-8004) | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| ReputationRegistry (ERC-8004) | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
 | AgentRepValidator | `0x8A924C10fD2f789c323BbB06bf747caEfE9F6efb` |
-| AaveScoreModule | `0xEBe2ee03047A0f90e96bb75be3044403300cc9B0` *(disabled on testnet)* |
 | UniswapScoreModule | `0xe982007093F0A7f50a9dA0e4361A7311E2FbCdB5` |
 | BaseActivityModule | `0xfD8755EeBb6E879562037fdf0aA087FC43A0fe83` |
-
-*AaveScoreModule 因在测试网上 Aave Pool 未部署而被 governance 禁用，不影响 Uniswap + Activity 模块的评分。*
 
 ## 快速开始
 
@@ -65,7 +62,7 @@ npx tsx scripts/keeper-rpc.ts --wallet=0xYOUR_WALLET [--dry-run]
 
 ### 3. keeper-daemon.ts（定时调度）
 
-定时自动执行所有 Keeper 提交（Swap / Activity / Aave Wallet Meta）。
+定时自动执行所有 Keeper 提交（Swap / Activity）。
 
 配置 `.env`：
 
@@ -75,7 +72,6 @@ DAEMON_INTERVAL_MS=300000   # 默认 5 分钟
 UNISWAP_MODULE=0x...
 UNISWAP_POOLS=0x...,0x...
 BASE_MODULE=0x...
-AAVE_MODULE=0x...
 OKX_API_KEY=...
 OKX_API_SECRET=...
 OKX_PASSPHRASE=...
@@ -121,7 +117,7 @@ import { register } from "./src/skill";
 
 const { agentId, txHash } = await register({
   wallet: "0x067aBc270C4638869Cd347530Be34cBdD93D0EA1",
-  capabilities: ["swap", "lend"],
+  capabilities: ["swap"],
   uri: "https://example.com/agent.json",
 });
 ```
@@ -228,7 +224,6 @@ test/            # Foundry + vitest 集成测试
 ## 核心合约
 
 - `AgentRepValidator.sol` — 主合约，模块管理与评分聚合
-- `AaveScoreModule.sol` — Aave 借贷评分
 - `UniswapScoreModule.sol` — Uniswap 交易评分
 - `BaseActivityModule.sol` — 链上活动评分
 

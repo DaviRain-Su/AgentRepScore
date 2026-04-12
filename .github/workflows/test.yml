@@ -52,7 +52,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run vitest tests
-        run: pnpm vitest run
+        run: pnpm vitest run test/
 
   slither:
     name: Slither analysis

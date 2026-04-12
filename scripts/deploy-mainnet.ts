@@ -11,7 +11,6 @@ const __dirname = path.dirname(__filename);
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 const RPC_URL = process.env.XLAYER_RPC || "https://xlayerrpc.okx.com";
-const AAVE_POOL = process.env.AAVE_POOL || "";
 const IDENTITY_REGISTRY = process.env.IDENTITY_REGISTRY || "";
 const REPUTATION_REGISTRY = process.env.REPUTATION_REGISTRY || "";
 const VALIDATION_REGISTRY = process.env.VALIDATION_REGISTRY || "0x0000000000000000000000000000000000000000";
@@ -42,7 +41,7 @@ async function deployContract(wallet: Wallet, name: string, args: any[] = []): P
 }
 
 async function main() {
-  if (!PRIVATE_KEY || !AAVE_POOL || !IDENTITY_REGISTRY || !REPUTATION_REGISTRY) {
+  if (!PRIVATE_KEY || !IDENTITY_REGISTRY || !REPUTATION_REGISTRY) {
     console.error("Missing required env vars in .env.mainnet");
     process.exit(1);
   }
@@ -57,7 +56,6 @@ async function main() {
   console.log("Balance:", balance.toString(), "wei");
 
   // 1. Deploy modules
-  const aaveModule = await deployContract(wallet, "AaveScoreModule", [AAVE_POOL, deployer]);
   const uniModule = await deployContract(wallet, "UniswapScoreModule", [deployer]);
   const baseModule = await deployContract(wallet, "BaseActivityModule", [deployer]);
 
@@ -77,8 +75,8 @@ async function main() {
   console.log("AgentRepValidator deployed to:", validatorAddress);
 
   // 3. Bootstrap register modules in validator (must be within 1 hour of deployment)
-  const moduleAddrs = [aaveModule, uniModule, baseModule];
-  const moduleWeights = [3500n, 4000n, 2500n];
+  const moduleAddrs = [uniModule, baseModule];
+  const moduleWeights = [4000n, 2500n];
 
   // @ts-expect-error hardhat type inference limitation
   const bootstrapTx = await validator.bootstrapModules(moduleAddrs, moduleWeights);
@@ -102,7 +100,6 @@ async function main() {
 
   // 5. Output env vars
   console.log("\n=== Update .env.mainnet with these addresses ===");
-  console.log(`AAVE_MODULE=${aaveModule}`);
   console.log(`UNISWAP_MODULE=${uniModule}`);
   console.log(`BASE_MODULE=${baseModule}`);
   console.log(`VALIDATOR_ADDRESS=${validatorAddress}`);

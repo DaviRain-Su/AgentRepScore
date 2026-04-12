@@ -10,12 +10,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
-const RPC_URL = process.env.XLAYER_TESTNET_RPC || "https://testrpc.xlayer.tech";
+const RPC_URL = process.env.XLAYER_TESTNET_RPC || "https://testrpc.xlayer.tech/terigon";
 const IDENTITY_REGISTRY = process.env.IDENTITY_REGISTRY || "";
 const REPUTATION_REGISTRY = process.env.REPUTATION_REGISTRY || "";
 const VALIDATION_REGISTRY = process.env.VALIDATION_REGISTRY || "0x0000000000000000000000000000000000000000";
 const GOVERNANCE_SAFE = process.env.GOVERNANCE_SAFE || "";
-const AAVE_MODULE = process.env.AAVE_MODULE || "";
 const UNISWAP_MODULE = process.env.UNISWAP_MODULE || "";
 const BASE_MODULE = process.env.BASE_MODULE || "";
 
@@ -33,7 +32,7 @@ function loadArtifact(name: string): { abi: any; bytecode: string } {
 }
 
 async function main() {
-  if (!PRIVATE_KEY || !IDENTITY_REGISTRY || !REPUTATION_REGISTRY || !AAVE_MODULE || !UNISWAP_MODULE || !BASE_MODULE) {
+  if (!PRIVATE_KEY || !IDENTITY_REGISTRY || !REPUTATION_REGISTRY || !UNISWAP_MODULE || !BASE_MODULE) {
     console.error("Missing required env vars");
     process.exit(1);
   }
@@ -61,19 +60,29 @@ async function main() {
   console.log("Governance address:", governance);
   console.log("AgentRepValidator deployed to:", validatorAddress);
 
-  // Register modules
-  const mods = [
-    { name: "AaveScoreModule", address: AAVE_MODULE, weight: 3500n },
-    { name: "UniswapScoreModule", address: UNISWAP_MODULE, weight: 4000n },
-    { name: "BaseActivityModule", address: BASE_MODULE, weight: 2500n },
-  ];
+  // Bootstrap modules (must be within 1 hour of deployment)
+  const moduleAddrs = [UNISWAP_MODULE, BASE_MODULE];
+  const moduleWeights = [4000n, 2500n];
 
-  for (const mod of mods) {
-    // @ts-expect-error hardhat type inference limitation
-    const tx = await validator.registerModule(mod.address, mod.weight);
-    await tx.wait();
-    console.log(`Registered ${mod.name} weight=${mod.weight}`);
+  // @ts-expect-error hardhat type inference limitation
+  const bootstrapTx = await validator.bootstrapModules(moduleAddrs, moduleWeights);
+  await bootstrapTx.wait();
+  console.log("Bootstrapped modules via validator.bootstrapModules()");
+  for (let i = 0; i < moduleAddrs.length; i++) {
+    console.log(`  Module ${i}: ${moduleAddrs[i]} weight=${moduleWeights[i]}`);
   }
+
+  // Set deployer as keeper for Uniswap and Base modules
+  const uniContract = new Contract(UNISWAP_MODULE, loadArtifact("UniswapScoreModule").abi, wallet);
+  const baseContract = new Contract(BASE_MODULE, loadArtifact("BaseActivityModule").abi, wallet);
+
+  const tx1 = await uniContract.setKeeper(deployer, true);
+  await tx1.wait();
+  console.log("Set keeper for UniswapScoreModule:", deployer);
+
+  const tx2 = await baseContract.setKeeper(deployer, true);
+  await tx2.wait();
+  console.log("Set keeper for BaseActivityModule:", deployer);
 
   console.log("\n=== Update .env VALIDATOR_ADDRESS ===");
   console.log(`VALIDATOR_ADDRESS=${validatorAddress}`);

@@ -32,7 +32,7 @@ Register a new agent identity on ERC-8004 and bind its wallet.
 ```json
 {
   "wallet": "0x...",
-  "capabilities": ["swap", "lend"],
+  "capabilities": ["swap"],
   "uri": "https://example.com/agent.json"
 }
 ```
@@ -66,7 +66,6 @@ Trigger an on-chain evaluation for a given agent.
   "evidenceHash": "0x...",
   "timestamp": 1700000000,
   "moduleBreakdown": [
-    { "name": "AaveScoreModule", "score": 9000, "weight": 3500 },
     { "name": "UniswapScoreModule", "score": 7500, "weight": 4000 },
     { "name": "BaseActivityModule", "score": 6000, "weight": 2500 }
   ]
@@ -130,7 +129,6 @@ List registered scoring modules and their weights.
 ```json
 {
   "modules": [
-    { "name": "AaveScoreModule", "category": "lending", "address": "0x...", "weight": 3500, "active": true },
     { "name": "UniswapScoreModule", "category": "dex", "address": "0x...", "weight": 4000, "active": true },
     { "name": "BaseActivityModule", "category": "activity", "address": "0x...", "weight": 2500, "active": true }
   ]
