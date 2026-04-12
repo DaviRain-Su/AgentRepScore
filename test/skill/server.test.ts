@@ -6,6 +6,7 @@ const mockEvaluate = vi.fn();
 const mockQuery = vi.fn();
 const mockCompare = vi.fn();
 const mockModules = vi.fn();
+const mockSimulate = vi.fn();
 const mockLoadKeeperHealth = vi.fn();
 
 vi.mock("../../src/skill/index", () => ({
@@ -14,6 +15,10 @@ vi.mock("../../src/skill/index", () => ({
   query: (...args: any[]) => mockQuery(...args),
   compare: (...args: any[]) => mockCompare(...args),
   modules: (...args: any[]) => mockModules(...args),
+}));
+
+vi.mock("../../src/skill/commands/simulate", () => ({
+  simulate: (...args: any[]) => mockSimulate(...args),
 }));
 
 vi.mock("../../src/skill/keeper-utils", () => ({
@@ -143,6 +148,29 @@ describe("HTTP API", () => {
     expect(res.status).toBe(200);
     expect(res.body.modules[0].name).toBe("UniswapScoreModule");
     expect(mockModules).toHaveBeenCalledWith();
+  });
+
+  it("POST /simulate calls simulate and returns result", async () => {
+    mockSimulate.mockResolvedValueOnce({
+      rawScore: 6800,
+      decayedScore: 6800,
+      trustTier: "verified",
+      totalWeight: 10000,
+      moduleBreakdown: [
+        { name: "Uniswap", score: 8000, confidence: 100, weight: 6000, effectiveWeight: 6000, contribution: 48000000 },
+        { name: "Activity", score: 5000, confidence: 100, weight: 4000, effectiveWeight: 4000, contribution: 20000000 },
+      ],
+    });
+    const res = await request(app).post("/simulate").send({
+      modules: [
+        { name: "Uniswap", score: 8000, confidence: 100, weight: 6000 },
+        { name: "Activity", score: 5000, confidence: 100, weight: 4000 },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.rawScore).toBe(6800);
+    expect(res.body.trustTier).toBe("verified");
+    expect(res.body.moduleBreakdown).toHaveLength(2);
   });
 
   it("returns 400 with error message on skill failure", async () => {

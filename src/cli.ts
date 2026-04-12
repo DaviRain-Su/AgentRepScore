@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { register, evaluate, query, compare, modules } from "./skill/index.ts";
+import { simulate, computeScore, type ModuleInput } from "./skill/commands/simulate.ts";
 import { loadKeeperHealth } from "./skill/keeper-utils.ts";
 import { loadConfigFromEnv, runOnce, startDaemon } from "./skill/keepers/runner.ts";
 import { logger } from "./skill/logger.ts";
@@ -51,6 +52,41 @@ program
   .description("List all validator modules")
   .action(async () => {
     const result = await modules();
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("simulate")
+  .description("Simulate scoring with custom weights (off-chain, no tx)")
+  .option("-a, --agent-id <id>", "Fetch current module scores from chain for this agent")
+  .option("-w, --weights <json>", 'Weight overrides as JSON, e.g. \'{"UniswapScoreModule":6000,"BaseActivityModule":4000}\'')
+  .option("-m, --modules <json>", 'Full module input as JSON array, e.g. \'[{"name":"Uni","score":7000,"confidence":100,"weight":5000}]\'')
+  .action(async (options: { agentId?: string; weights?: string; modules?: string }) => {
+    let weightOverrides: Record<string, number> | undefined;
+    let moduleInputs: ModuleInput[] | undefined;
+
+    if (options.weights) {
+      weightOverrides = JSON.parse(options.weights);
+    }
+    if (options.modules) {
+      moduleInputs = JSON.parse(options.modules);
+    }
+
+    let result;
+    if (moduleInputs) {
+      if (weightOverrides) {
+        moduleInputs = moduleInputs.map((m: ModuleInput) => ({
+          ...m,
+          weight: weightOverrides![m.name] ?? m.weight,
+        }));
+      }
+      result = computeScore(moduleInputs);
+    } else {
+      result = await simulate({
+        agentId: options.agentId,
+        weightOverrides,
+      });
+    }
     console.log(JSON.stringify(result, null, 2));
   });
 

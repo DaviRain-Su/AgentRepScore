@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { register, evaluate, query, compare, modules } from "./skill/index.ts";
+import { simulate } from "./skill/commands/simulate.ts";
 import { loadKeeperHealth } from "./skill/keeper-utils.ts";
 import { logger } from "./skill/logger.ts";
 
@@ -75,6 +76,15 @@ app.post("/compare", async (req, res, next) => {
 app.get("/modules", async (_req, res, next) => {
   try {
     const result = await modules();
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post("/simulate", async (req, res, next) => {
+  try {
+    const result = await simulate(req.body);
     res.json(result);
   } catch (err) {
     next(err);
