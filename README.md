@@ -1,13 +1,53 @@
 # AgentRepScore
 
-> DeFi Agent 的链上 eval 系统 —— 基于 ERC-8004 的 X Layer 声誉评分 Skill
+> **DeFi Agent 的链上 eval 系统 —— 基于 ERC-8004 的 X Layer 声誉评分 Skill**
+
+AgentRepScore 是 X Layer 上首个基于 **ERC-8004** 的链上 DeFi Agent 声誉评估基础设施。它将 AI 开发的 eval 范式从链下合成测试，升级为用**智能合约强制执行的链上真实数据验证**。
+
+**核心创新：** `AgentRepValidator` 合约直接读取 Uniswap / 链上活动数据，计算分数后写入 ERC-8004 Reputation Registry。消费方只信任 `clientAddress == 合约地址` 的反馈，从根本上消除伪造。
+
+**多维度反作弊：** Wash trade 循环流转检测 · Counterparty 集中度惩罚 · Sybil 资金源集群检测。
+
+**模块化架构：** 每个 DeFi 协议是一个 `IScoreModule`，未来新增协议无需重新部署主合约。
+
+---
+
+## 为什么选 X Layer？
+
+- **Uniswap** 于 2026 年 1 月正式上线 X Layer
+- **Aave V3** 于 2026 年 3 月登陆 X Layer
+- 我们是首批将 **Agent 声誉基础设施** 带到 X Layer 生态的项目
+
+---
+
+## 测试网 Demo 结果
+
+| Agent | Profile | Raw Score | Trust Tier |
+|-------|---------|-----------|------------|
+| 8 | good | **8807** | elite |
+| 10 | wash | **2876** | basic |
+
+同一钱包，good profile 凭借高交易量+正PnL+多对手方获得 **elite**；wash profile 因负PnL+高滑点+洗盘标记跌至 **basic**。
+
+---
 
 ## X Layer Sepolia 测试网部署
+
+### V2 (UUPS Proxy) — 推荐
 
 | 合约 | 地址 |
 |------|------|
 | IdentityRegistry (ERC-8004) | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
 | ReputationRegistry (ERC-8004) | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| AgentRepValidatorV2 (Proxy) | `0x8B66EaD3b6A444528b62bC9B0d79a7314269dbfB` |
+| AgentRepValidatorV2 (Impl) | `0x05728030B3e63aaA0964e63c041C0c99cD9AC453` |
+| UniswapScoreModule | `0xf99FFbfab2cb4B8a02464D92DAC67f9F91e76f8A` |
+| BaseActivityModule | `0xf0BF570B4B68Ee7844895BdAC0C7f0615faC2996` |
+
+### V1 (Legacy — 已弃用)
+
+| 合约 | 地址 |
+|------|------|
 | AgentRepValidator | `0x8A924C10fD2f789c323BbB06bf747caEfE9F6efb` |
 | UniswapScoreModule | `0xe982007093F0A7f50a9dA0e4361A7311E2FbCdB5` |
 | BaseActivityModule | `0xfD8755EeBb6E879562037fdf0aA087FC43A0fe83` |
@@ -161,7 +201,7 @@ const ranked = await compare({ agentIds: ["8", "10"] });
 也可用脚本直接运行：
 
 ```bash
-npx ts-node scripts/demo-compare.ts 8 10
+npx tsx scripts/demo-compare.ts 8 10
 ```
 
 ### `rep:modules`
@@ -175,10 +215,10 @@ const { modules: list } = await modules();
 
 ## E2E 测试网流程
 
-一键跑通完整端到端测试：
+一键跑通完整端到端测试（使用 V1 验证环境）：
 
 ```bash
-npx ts-node scripts/e2e-test.ts
+npx tsx scripts/e2e-test.ts
 ```
 
 输出示例（Agent 8，good profile）：
@@ -223,9 +263,16 @@ test/            # Foundry + vitest 集成测试
 
 ## 核心合约
 
-- `AgentRepValidator.sol` — 主合约，模块管理与评分聚合
+- `AgentRepValidatorV2.sol` — 主合约（UUPS Proxy 可升级），模块管理与评分聚合
 - `UniswapScoreModule.sol` — Uniswap 交易评分
 - `BaseActivityModule.sol` — 链上活动评分
+
+> **当前测试网部署为 V2 Proxy 架构**（地址见上方「V2 (UUPS Proxy)」表格）。V1 的端到端 Demo 结果（Agent 8 vs 10）已验证评分逻辑正确性，V2 保持相同评分模型与接口。
+
+## 相关链接
+
+- GitHub: `https://github.com/davirain/AgentRepScore`
+- 8004scan X Layer: `https://8004scan.io/agents?chain=196`
 
 ## 许可证
 

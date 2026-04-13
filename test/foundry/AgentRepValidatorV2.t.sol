@@ -135,4 +135,114 @@ contract AgentRepValidatorV2Test is Test {
         validator.unpause();
         assertFalse(validator.paused());
     }
+
+    // --- Dynamic weight / auto-deactivation tests ---
+
+    function _setupModuleAndAgent(MockScoreModule mod) internal {
+        IScoreModule[] memory mods = new IScoreModule[](1);
+        mods[0] = mod;
+        uint256[] memory weights = new uint256[](1);
+        weights[0] = 10000;
+        validator.bootstrapModules(mods, weights);
+
+        identity.register("https://example.com");
+        identity.setAgentWallet(0, user);
+        validator.setCooldown(0);
+        vm.warp(block.timestamp + 1 days + 1);
+    }
+
+    function test_AutoDeactivateAfterThreshold() public {
+        MockScoreModule mod = new MockScoreModule("Stale", "test", 0, 0, bytes32(0));
+        _setupModuleAndAgent(mod);
+
+        validator.setAutoDeactivateThreshold(3);
+
+        // Each evaluation with confidence=0 increments the counter
+        for (uint256 i = 0; i < 3; i++) {
+            vm.warp(block.timestamp + 1 days + 1);
+            validator.evaluateAgent(0);
+        }
+
+        // Module should be auto-deactivated
+        (,,bool active) = validator.modules(0);
+        assertFalse(active);
+        assertEq(validator.consecutiveZeroConfidence(0), 3);
+    }
+
+    function test_ConfidenceRecoveryResetsCounter() public {
+        MockScoreModule mod = new MockScoreModule("Flaky", "test", 5000, 0, bytes32(0));
+        _setupModuleAndAgent(mod);
+
+        validator.setAutoDeactivateThreshold(5);
+
+        // 3 rounds of zero confidence
+        for (uint256 i = 0; i < 3; i++) {
+            vm.warp(block.timestamp + 1 days + 1);
+            validator.evaluateAgent(0);
+        }
+        assertEq(validator.consecutiveZeroConfidence(0), 3);
+
+        // Module recovers confidence
+        mod.setResult(5000, 100, bytes32(uint256(0xaa)));
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+
+        // Counter resets
+        assertEq(validator.consecutiveZeroConfidence(0), 0);
+        (,,bool active) = validator.modules(0);
+        assertTrue(active);
+    }
+
+    function test_ManualReactivationResetsCounter() public {
+        MockScoreModule mod = new MockScoreModule("Dead", "test", 0, 0, bytes32(0));
+        _setupModuleAndAgent(mod);
+
+        validator.setAutoDeactivateThreshold(2);
+
+        for (uint256 i = 0; i < 2; i++) {
+            vm.warp(block.timestamp + 1 days + 1);
+            validator.evaluateAgent(0);
+        }
+
+        (,,bool active) = validator.modules(0);
+        assertFalse(active);
+
+        // Governance re-activates
+        validator.setModuleActive(0, true);
+        (,,active) = validator.modules(0);
+        assertTrue(active);
+        assertEq(validator.consecutiveZeroConfidence(0), 0);
+    }
+
+    function test_ThresholdZeroDisablesAutoDeactivation() public {
+        MockScoreModule mod = new MockScoreModule("AlwaysZero", "test", 0, 0, bytes32(0));
+        _setupModuleAndAgent(mod);
+
+        validator.setAutoDeactivateThreshold(0);
+
+        for (uint256 i = 0; i < 10; i++) {
+            vm.warp(block.timestamp + 1 days + 1);
+            validator.evaluateAgent(0);
+        }
+
+        // Module stays active despite 10 zero-confidence rounds
+        (,,bool active) = validator.modules(0);
+        assertTrue(active);
+    }
+
+    function test_GetModuleHealth() public {
+        MockScoreModule mod = new MockScoreModule("Health", "test", 0, 0, bytes32(0));
+        _setupModuleAndAgent(mod);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+
+        (string[] memory names, uint256[] memory zeroStreaks, bool[] memory activeStates) = validator.getModuleHealth();
+        assertEq(names.length, 1);
+        assertEq(names[0], "Health");
+        assertEq(zeroStreaks[0], 2);
+        assertTrue(activeStates[0]);
+    }
 }

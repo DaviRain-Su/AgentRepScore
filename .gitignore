@@ -24,3 +24,7 @@ node_modules/
 lib
 !contracts/lib/
 artifacts/
+
+# Keeper runtime files
+.keeper-state.json
+keeper-health.json

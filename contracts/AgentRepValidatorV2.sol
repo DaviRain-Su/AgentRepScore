@@ -101,6 +101,11 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     address public pendingGovernance;
     uint256 public bootstrapDeadline;
 
+    // Dynamic weight: track consecutive zero-confidence evaluations per module
+    mapping(uint256 => uint256) public consecutiveZeroConfidence;
+    uint256 public autoDeactivateThreshold;
+    event ModuleAutoDeactivated(uint256 indexed moduleIndex, address indexed module, uint256 consecutiveZeros);
+
     // Custom errors
     error CooldownNotElapsed(uint256 remaining);
     error AgentWalletNotSet(uint256 agentId);
@@ -146,6 +151,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         evaluators[governance_] = true;
         evaluationCooldown = ScoreConstants.COOLDOWN_DEFAULT;
         bootstrapDeadline = block.timestamp + 1 hours;
+        autoDeactivateThreshold = 5;
         _status = _NOT_ENTERED;
     }
 
@@ -253,6 +259,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
         modules[moduleIndex].active = active;
         if (active) {
+            consecutiveZeroConfidence[moduleIndex] = 0;
             uint256 totalWeight = _totalActiveWeight();
             if (totalWeight > 10000) revert TotalWeightExceeded(totalWeight);
         }
@@ -261,6 +268,10 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
 
     function setCooldown(uint256 cooldown) external onlyGovernance whenNotPaused {
         evaluationCooldown = cooldown;
+    }
+
+    function setAutoDeactivateThreshold(uint256 threshold) external onlyGovernance whenNotPaused {
+        autoDeactivateThreshold = threshold;
     }
 
     function moduleCount() external view returns (uint256) {
@@ -311,6 +322,18 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
             if (!modules[i].active) continue;
 
             (int256 modScore, uint256 confidence, bytes32 evidence) = modules[i].module.evaluate(wallet);
+
+            // Track consecutive zero-confidence and auto-deactivate
+            if (confidence == 0) {
+                consecutiveZeroConfidence[i]++;
+                if (autoDeactivateThreshold > 0 && consecutiveZeroConfidence[i] >= autoDeactivateThreshold) {
+                    modules[i].active = false;
+                    emit ModuleAutoDeactivated(i, address(modules[i].module), consecutiveZeroConfidence[i]);
+                    emit ModuleUpdated(i, modules[i].weight, false);
+                }
+            } else {
+                consecutiveZeroConfidence[i] = 0;
+            }
 
             uint256 effectiveWeight = modules[i].weight * confidence / 100;
             if (effectiveWeight > 0) {
@@ -409,6 +432,27 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
             names[i] = modules[i].module.name();
             categories[i] = modules[i].module.category();
             weights[i] = modules[i].weight;
+            activeStates[i] = modules[i].active;
+        }
+    }
+
+    function getModuleHealth()
+        external
+        view
+        returns (
+            string[] memory names,
+            uint256[] memory zeroStreaks,
+            bool[] memory activeStates
+        )
+    {
+        uint256 len = modules.length;
+        names = new string[](len);
+        zeroStreaks = new uint256[](len);
+        activeStates = new bool[](len);
+
+        for (uint256 i = 0; i < len; i++) {
+            names[i] = modules[i].module.name();
+            zeroStreaks[i] = consecutiveZeroConfidence[i];
             activeStates[i] = modules[i].active;
         }
     }

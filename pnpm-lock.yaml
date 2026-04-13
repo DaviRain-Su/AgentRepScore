@@ -18,6 +18,9 @@ importers:
         specifier: ^5.0.1
         version: 5.0.1(express@5.2.1)
     devDependencies:
+      '@nomicfoundation/hardhat-foundry':
+        specifier: ^3.0.0
+        version: 3.0.0(hardhat@3.3.0)
       '@nomicfoundation/hardhat-toolbox-viem':
         specifier: ^5.0.3
         version: 5.0.3(@nomicfoundation/hardhat-ignition-viem@3.1.1(@nomicfoundation/hardhat-ignition@3.1.1(@nomicfoundation/hardhat-verify@3.0.13(hardhat@3.3.0))(hardhat@3.3.0))(@nomicfoundation/hardhat-verify@3.0.13(hardhat@3.3.0))(@nomicfoundation/hardhat-viem@3.0.4(hardhat@3.3.0)(viem@2.47.12(typescript@6.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.1)(hardhat@3.3.0)(viem@2.47.12(typescript@6.0.2)(zod@3.25.76)))(@nomicfoundation/hardhat-ignition@3.1.1(@nomicfoundation/hardhat-verify@3.0.13(hardhat@3.3.0))(hardhat@3.3.0))(@nomicfoundation/hardhat-keystore@3.0.5(hardhat@3.3.0))(@nomicfoundation/hardhat-network-helpers@3.0.4(hardhat@3.3.0))(@nomicfoundation/hardhat-node-test-runner@3.0.12(hardhat@3.3.0))(@nomicfoundation/hardhat-verify@3.0.13(hardhat@3.3.0))(@nomicfoundation/hardhat-viem-assertions@3.0.7(@nomicfoundation/hardhat-viem@3.0.4(hardhat@3.3.0)(viem@2.47.12(typescript@6.0.2)(zod@3.25.76)))(hardhat@3.3.0)(viem@2.47.12(typescript@6.0.2)(zod@3.25.76)))(@nomicfoundation/hardhat-viem@3.0.4(hardhat@3.3.0)(viem@2.47.12(typescript@6.0.2)(zod@3.25.76)))(@nomicfoundation/ignition-core@3.1.1)(hardhat@3.3.0)(viem@2.47.12(typescript@6.0.2)(zod@3.25.76))
@@ -425,6 +428,11 @@ packages:
 
   '@nomicfoundation/hardhat-errors@3.0.10':
     resolution: {integrity: sha512-jfQ75/t21674cIQPbQmzRSY8YdusvQhKMsT+IGEoXlJuAzw+ngWsD7y7nHT8UKQ+liHWgMA+Am2843KwP0KtiA==}
+
+  '@nomicfoundation/hardhat-foundry@3.0.0':
+    resolution: {integrity: sha512-+PyiZxkrlDL3VsmICa5PVQcsvHEQlCGtgBvoaZhMXDHFcBDcgqHnbJdf8a93mhzbt2XopfP9yOg1EOJ9L+9QXA==}
+    peerDependencies:
+      hardhat: ^3.1.10
 
   '@nomicfoundation/hardhat-ignition-viem@3.1.1':
     resolution: {integrity: sha512-Jq718d4kU8CNFm1MG8kmHAvLtxwXk4TiFV9cqbgjQnAf/ZuJ/xVFBMOZDRYFHvH/Yx8Bs0jxovcIfoy+4RVEag==}
@@ -2422,6 +2430,14 @@ snapshots:
   '@nomicfoundation/hardhat-errors@3.0.10':
     dependencies:
       '@nomicfoundation/hardhat-utils': 4.0.2
+    transitivePeerDependencies:
+      - supports-color
+
+  '@nomicfoundation/hardhat-foundry@3.0.0(hardhat@3.3.0)':
+    dependencies:
+      '@nomicfoundation/hardhat-errors': 3.0.10
+      '@nomicfoundation/hardhat-utils': 4.0.2
+      hardhat: 3.3.0
     transitivePeerDependencies:
       - supports-color
 

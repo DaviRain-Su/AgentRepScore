@@ -47,6 +47,9 @@ const baseModuleAbi = [
 
 const XLAYER_CHAIN_INDEX = "196";
 const OKX_BASE_URL = "https://web3.okx.com";
+const OKX_MIN_INTERVAL_MS = 1500; // OKX rate limit: avoid 429
+
+let okxLastRequestTime = 0;
 
 export interface OkxCredentials {
   apiKey: string;
@@ -82,6 +85,13 @@ function signRequest(secret: string, timestamp: string, method: string, path: st
 }
 
 async function okxFetch(path: string, creds: OkxCredentials): Promise<OkxTxResponse> {
+  const now = Date.now();
+  const elapsed = now - okxLastRequestTime;
+  if (elapsed < OKX_MIN_INTERVAL_MS) {
+    await sleep(OKX_MIN_INTERVAL_MS - elapsed);
+  }
+  okxLastRequestTime = Date.now();
+
   const timestamp = new Date().toISOString();
   const sign = signRequest(creds.apiSecret, timestamp, "GET", path);
   const res = await fetch(OKX_BASE_URL + path, {
@@ -124,7 +134,6 @@ async function fetchAllTransactions(wallet: string, creds: OkxCredentials): Prom
     logger.info(`[activity-oklink] Page ${page}: ${pageData.transactionList.length} txs (total: ${allTxs.length})`);
     cursor = pageData.cursor;
     if (!cursor) break;
-    await sleep(300);
   }
   return allTxs;
 }

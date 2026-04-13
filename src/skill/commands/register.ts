@@ -1,4 +1,4 @@
-import { createWalletClient, createPublicClient, http, decodeEventLog } from "viem";
+import { createWalletClient, createPublicClient, http, decodeEventLog, keccak256, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { xLayer, xLayerTestnet } from "viem/chains";
 import { config } from "../../config.ts";
@@ -6,6 +6,7 @@ import { RegisterInput } from "../types.ts";
 import { identityRegistryAbi } from "../abis.ts";
 
 const chain = config.network === "mainnet" ? xLayer : xLayerTestnet;
+const REGISTERED_EVENT_SIG = keccak256(toHex("Registered(uint256,string,address)"));
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -26,6 +27,15 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
   const walletClient = createWalletClient({ account, chain, transport });
   const publicClient = createPublicClient({ chain, transport });
 
+  // Simulate first to reliably obtain the returned agentId (register() returns uint256)
+  const { result: simulatedAgentId } = await publicClient.simulateContract({
+    address: config.identityRegistry as `0x${string}`,
+    abi: identityRegistryAbi,
+    functionName: "register",
+    args: [input.uri],
+    account,
+  });
+
   const registerHash = await walletClient.writeContract({
     address: config.identityRegistry as `0x${string}`,
     abi: identityRegistryAbi,
@@ -39,8 +49,14 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
     "waitForTransactionReceipt (register)"
   );
 
-  let agentId = "0";
+  let agentId = simulatedAgentId.toString();
+
+  // Best-effort validation from logs (optional)
   for (const log of receipt.logs) {
+    if (log.topics[0]?.toLowerCase() === REGISTERED_EVENT_SIG.toLowerCase() && log.topics[1]) {
+      agentId = BigInt(log.topics[1]).toString();
+      break;
+    }
     try {
       const event = decodeEventLog({ abi: identityRegistryAbi, eventName: "Registered", data: log.data, topics: log.topics });
       agentId = event.args.agentId.toString();
@@ -48,10 +64,6 @@ export async function register(input: RegisterInput): Promise<{ agentId: string;
     } catch {
       continue;
     }
-  }
-
-  if (agentId === "0") {
-    throw new Error("Failed to parse agentId from register transaction");
   }
 
   // Set agent wallet requires an EIP-712 signature from the new wallet.
