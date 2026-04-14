@@ -1,6 +1,6 @@
-# AgentRepScore — 技术规格 (v2.2)
+# AgentRepScore — 技术规格 (v2.3)
 
-> 更新说明：v2.2 基于 Hackathon MVP 完成后的差距分析，标记了已实现功能与 Production 待补齐项。
+> 更新说明：v2.3 将剩余工作收敛为 P2 主线：**proof-backed evidence、adaptive weights、cross-module correlation**；P3 愿景保留但暂不纳入当前实现范围。
 
 ---
 
@@ -265,6 +265,64 @@ contract AgentRepValidator {
 | `acceptGovernanceTransfer()` | `pendingGovernance` | 接受治理转移 |
 | `handleValidationRequest(requestHash, agentId)` | `onlyEvaluator` | 处理 Validation Registry 请求；若配置了 validationRegistry，会先校验 requestHash 存在性 |
 
+#### P2 扩展目标：Adaptive Weights / Correlation / Commitment
+
+P2 阶段主合约将从“静态权重聚合器”升级为“运行时策略驱动的聚合器”。建议增加如下运行时状态：
+
+```solidity
+struct WeightPolicy {
+    bool enabled;
+    uint16 minWeightBps;
+    uint16 decayStepBps;
+    uint16 recoveryStepBps;
+    uint8 zeroConfidenceThreshold;
+}
+
+struct ModuleRuntimeState {
+    uint256 zeroConfidenceStreak;
+    uint256 effectiveBaseWeight;
+    uint256 lastUpdatedAt;
+}
+
+struct CorrelationAssessment {
+    int256 penalty;
+    bytes32 evidenceHash;
+    uint8 ruleCount;
+}
+
+struct EvidenceCommitment {
+    bytes32 root;
+    bytes32 leafHash;
+    bytes32 summaryHash;
+    uint64 epoch;
+    uint64 blockNumber;
+    uint8 proofType; // 0=summary-only, 1=merkle, 2=receipt/storage proof
+}
+```
+
+建议新增 / 扩展的接口：
+
+- `setWeightPolicy(...)`：治理配置 adaptive weight 策略
+- `getEffectiveWeights()`：读取 nominal weight 与 runtime effective base weight
+- `getModuleRuntimeState(moduleIndex)`：读取 zero-confidence streak / recovery 状态
+- `getCorrelationAssessment(agentId)`：读取最近一次关联惩罚结果
+- `getEvidenceCommitment(module, wallet)`：读取模块最新 commitment 元数据
+
+**聚合规则目标：**
+
+```solidity
+uint256 effectiveBaseWeight = resolveAdaptiveWeight(moduleIndex, confidence);
+uint256 effectiveWeight = effectiveBaseWeight * confidence / 100;
+CorrelationAssessment memory correlation = computeCorrelationPenalty(wallet, moduleOutputs);
+finalScore = weightedAverage(moduleOutputs, effectiveWeight) - correlation.penalty;
+```
+
+即：
+- nominal weight 仍是治理层配置；
+- adaptive weight 是运行时修正层；
+- correlation penalty 是聚合后的额外风控层；
+- verified commitment 是模块数据进入聚合前的 acceptance gate。
+
 #### handleValidationRequest
 
 ```solidity
@@ -441,8 +499,8 @@ function evaluate(address wallet)
 
 **清算计数实现方案：**
 - 由于 Aave 的 `LiquidationCall` 事件是日志，合约无法直接读取历史。
-- ~~MVP 方案 A（推荐）~~：链下索引器计算 `liquidationCount`，通过 Merkle 证明传递。该方案尚未实现，属于 P2 任务。
-- **MVP 实际采用：** keeper 调用 `submitWalletMeta(wallet, liquidationCount, suppliedAssetCount)` 将摘要写入链上，`evaluate` 时直接读取。这是带信任假设的折中方案，Production 应迁移到自动索引器或 Merkle 证明。
+- **当前实现：** keeper 调用 `submitWalletMeta(wallet, liquidationCount, suppliedAssetCount)` 将摘要写入链上，`evaluate` 时直接读取。
+- **P2 目标：** Aave 也迁移到统一的 `EvidenceCommitment` 模型：链下索引器输出 `summaryHash + leafHash + root + proof`，模块仅接受已验证 commitment 对应的摘要；如 Aave 暂未进入主路径，也必须保持与 Uniswap / BaseActivity 同构的数据面接口。
 
 ---
 
@@ -451,30 +509,39 @@ function evaluate(address wallet)
 #### 设计约束
 
 - Uniswap V3 swap 历史无法通过纯合约调用直接获取。
-- **设计目标：** 链下索引器聚合 + Merkle/存储证明 + 合约验证的混合模式（P2 任务，尚未实现）。
-- **当前实现：** 受信 keeper 提交聚合摘要（方案 B），`UniswapScoreModule.evaluate(wallet)` 读取链上摘要数据。
+- **当前实现：** 受信 keeper 提交聚合摘要，`UniswapScoreModule.evaluate(wallet)` 读取链上摘要数据。
+- **P2 目标：** 迁移到统一的 commitment-first 数据面：keeper / indexer 先生成摘要，再生成 `summaryHash + leafHash + root + proof bundle`，合约仅在 commitment 被接受后使用该摘要评分。
 
-#### 存储证明接口（MVP 简化）
+#### P2 目标接口（Commitment + Proof）
 
 ```solidity
-struct SwapProof {
-    bytes32 blockHash;
-    bytes32 receiptRoot;
-    bytes receiptProof;
-    bytes receiptBody;
-    uint256 logIndex;
+struct SwapCommitment {
+    bytes32 root;
+    bytes32 leafHash;
+    bytes32 summaryHash;
+    uint64 epoch;
+    uint64 blockNumber;
+    uint8 proofType;
 }
 
-function evaluateWithProof(address wallet, SwapProof[] calldata proofs)
+function submitSwapCommitment(
+    address wallet,
+    SwapSummary calldata summary,
+    SwapCommitment calldata commitment,
+    bytes calldata proof,
+    bytes calldata keeperSignature
+) external;
+
+function getLatestSwapCommitment(address wallet)
     external
     view
-    returns (int256 score, uint256 confidence, bytes32 evidence);
+    returns (SwapCommitment memory);
 ```
 
-**实现状态：**
-- 方案 A（Merkle/存储证明）：🔴 未实现，属于 P2 任务。
-- 方案 B（keeper 提交聚合摘要）：🟢 已实现。keeper 调用 `submitSwapSummary` 将摘要写入链上合约，evaluate 时直接读取。这是 Hackathon MVP 的折中方案，Production 必须配合同步推进自动索引器 + Merkle 证明。
-- 方案 C（链下 evaluate + 合约签名验证）：🔴 未采用。
+**分阶段实现：**
+- Phase A：保持当前摘要评分逻辑，但强制摘要与 `summaryHash / leafHash / root` 对齐。
+- Phase B：对 proof bundle 做 onchain acceptance gate，只有验证通过的 commitment 可被 `evaluate()` 使用。
+- Phase C：默认走 verified commitment；`submitSwapSummary` 降级为兼容接口。
 
 #### Keeper 接口
 
@@ -915,9 +982,10 @@ AAVE_POOL=0x...
 | 2-step 治理转移 | 🟢 已实现 | `initiateGovernanceTransfer` + `acceptGovernanceTransfer` |
 | 紧急 Pause | 🟢 已实现 | `AgentRepValidator` + 3 个模块均已实现 `Pausable`；`evaluateAgent`、keeper 提交、治理函数均已加 `whenNotPaused` |
 | Timelock | 🟢 已实现 | `scheduleRegisterModule` / `executeRegisterModule`、`scheduleUpdateWeight` / `executeUpdateWeight` 已实现 24h 延迟；opHash 在 execute 时重新验证参数一致性 |
-| Multisig | 🔴 未实现 | **P0：** governance 仍是单个 EOA |
-| 第三方安全审计 | 🔴 未实现 | **P1：** 正式上线前必须完成 |
-| keeper 签名（EIP-712） | 🟡 部分 | `register.ts` 中 EIP-712 用于 `setAgentWallet`，但 keeper 提交摘要尚未要求链下签名验证 |
+| Multisig | 🟢 已实现 | 部署脚本支持 `GOVERNANCE_SAFE`，测试中有 `MockMultisig` 覆盖治理场景 |
+| 第三方安全审计 | 🔴 未实现 | 正式大规模上线前仍建议完成 |
+| keeper 签名（EIP-712） | 🟢 已实现 | Uniswap / BaseActivity / Aave 的 `submit*` 接口均已要求 per-wallet nonce 的 EIP-712 签名 |
+| proof-backed evidence acceptance gate | 🔴 未实现 | 属于 P2 主线：verified commitment 成为默认数据入口前必须补齐 |
 
 ### 9.2 Gas 优化
 
@@ -933,8 +1001,9 @@ AAVE_POOL=0x...
 
 | 问题 | 风险 | 应对策略 |
 |------|------|----------|
-| keeper 信任假设 | 中 | MVP 阶段 accept 此假设，赛后研究 zk/merkle 替代 |
-| 4 天时间紧张 | 高 | 优先实现 Aave + BaseActivity，Uniswap 用简化 keeper 模式 |
+| keeper / indexer 仍有信任假设 | 中 | 通过 P2 的 commitment + proof + acceptance gate 消减该假设 |
+| 静态权重对模块健康状态响应不足 | 中 | 通过 P2 adaptive weights 让低 confidence 模块自动降权 |
+| 单模块评分难识别组合式操纵 | 中 | 通过 P2 cross-module correlation 在聚合层追加惩罚 |
 
 ---
 
@@ -969,4 +1038,5 @@ library ScoreConstants {
 | v1.0 | 2026-04-11 | 从架构设计拆分出独立技术规格文档 |
 | v2.0 | 2026-04-11 | 完善接口定义、合约伪代码、部署顺序、测试策略 |
 | v2.1 | 2026-04-11 | 修正 ERC-8004 ABI、增加 keeper 接口与自定义错误、移除风险模块权重缺口 |
-| v2.2 | 2026-04-11 | 基于 Hackathon MVP 完成后的差距分析更新：标记 ReentrancyGuard/onlyEvaluator/治理转移/validationRegistry 调用为已实现；标记 Merkle 证明/Pausable/Timelock/Multisig 为未实现；补充 fuzz/invariant/vitest 测试策略
+| v2.2 | 2026-04-11 | 基于 Hackathon MVP 完成后的差距分析更新：标记 ReentrancyGuard/onlyEvaluator/治理转移/validationRegistry 调用为已实现；标记 Merkle 证明/Pausable/Timelock/Multisig 为未实现；补充 fuzz/invariant/vitest 测试策略 |
+| v2.3 | 2026-04-14 | 将剩余实现范围收敛为 P2 主线：新增 adaptive weights / correlation / evidence commitment 目标规格；同步 Multisig、keeper EIP-712 等已实现状态 |

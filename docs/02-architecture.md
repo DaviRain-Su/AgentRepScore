@@ -1,4 +1,4 @@
-# AgentRepScore — 架构设计 (v2.0)
+# AgentRepScore — 架构设计 (v2.1)
 
 ---
 
@@ -332,7 +332,7 @@ interface IAgentRepValidator {
 
 ### 9.4 实现细节
 
-**读取 Uniswap swap 历史：** 方案 A（MVP）——链下索引器通过 OnchainOS 查询 swap 事件，以 Merkle 证明传递给合约验证。
+**读取 Uniswap swap 历史：** 当前实现为链下索引器 / keeper 聚合摘要后提交到链上；P2 将把该路径升级为 `summary + commitment + proof` 的 verified evidence 模式。
 
 **读取 Aave 状态：** `aavePool.getUserAccountData()` 直接链上调用。
 
@@ -400,24 +400,22 @@ Aave V3.6 于 2026 年 3 月 30 日在 X Layer 上线。
 
 部署 3 个核心模块，实现端到端流程。
 
-### Phase 2：X Layer 生态深度扩展
+### Phase 2：Production Hardening（当前主线）
 
-| 新模块 | 评估维度 | 价值 |
-|--------|----------|------|
-| StargateModule | 跨链桥操作成功率、滑点损失 | 跨链操作能力 |
-| ChainlinkModule | Oracle 依赖度、价格异常应对 | 策略鲁棒性 |
-| YieldVaultModule | 策略收益率、夏普比率、最大回撤 | yield farming 能力 |
-| GHOStableModule | 稳定币持仓比例、脱锚风险应对 | 风险管理意识 |
+| 工作包 | 目标 | 产出 |
+|--------|------|------|
+| Proof-backed Evidence | 将 keeper 摘要升级为 `summary + commitment + proof` | 统一 `EvidenceCommitment` 模型、压缩存储、verified evidence acceptance gate |
+| Adaptive Weights | 根据模块 runtime 健康度自动调整权重 | `WeightPolicy`、effective weight、zero-confidence decay、recovery |
+| Cross-Module Correlation | 在聚合层识别组合式可疑行为 | Uniswap + BaseActivity 关联惩罚、可治理阈值、可观测输出 |
 
-### Phase 3：跨链与高级信号
+### Phase 3：生态扩展与高级信号（当前冻结）
 
-| 新能力 | 说明 |
-|--------|------|
+| 方向 | 说明 |
+|------|------|
+| 新协议模块 | 跨链桥、收益策略、稳定币风险管理等新增模块 |
 | 跨链声誉聚合 | 聚合同一 Agent 在多链上的 ERC-8004 分数 |
 | A2A 社会信任 | Agent-to-Agent 反馈构建递归信任网络 |
-| MEV 行为分析 | 检测 sandwich attack 等恶意 MEV 行为 |
-| 保险覆盖评估 | Agent 是否购买了链上保险 |
-| zkML 验证 | 零知识机器学习验证链下评分模型的正确性 |
+| MEV / zkML / 保险 | 更高级别的行为证明与风险覆盖能力 |
 
 ---
 
@@ -438,7 +436,7 @@ Aave V3.6 于 2026 年 3 月 30 日在 X Layer 上线。
 
 ### 12.2 诚实说明局限性
 
-- **历史数据深度：** MVP 依赖链下索引器 + Merkle 证明。
-- **跨链声誉：** 本版本仅 X Layer（Phase 3 扩展）。
+- **历史数据深度：** 当前实现依赖 keeper 摘要；P2 将升级到 `summary + commitment + proof` 的 verified evidence 模式。
+- **跨链声誉：** 本版本仅 X Layer（Phase 3 冻结项）。
 - **防女巫身份：** 能检测集群，不能阻止新身份创建。
-- **模块独立性：** 各模块独立评分可能遗漏跨协议关联行为（Phase 3 解决）。
+- **模块独立性：** 当前已具备单模块反作弊，但跨模块关联惩罚仍待 P2 落地。
