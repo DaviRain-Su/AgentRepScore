@@ -8,6 +8,105 @@ import "../../contracts/mocks/MockIdentityRegistry.sol";
 import "../../contracts/mocks/MockReputationRegistry.sol";
 import "../../contracts/mocks/MockScoreModule.sol";
 
+contract MockCorrelationUniswapModule is IScoreModule {
+    struct SwapSummary {
+        uint256 swapCount;
+        uint256 volumeUSD;
+        int256 netPnL;
+        uint256 avgSlippageBps;
+        uint256 feeToPnlRatioBps;
+        bool washTradeFlag;
+        bool counterpartyConcentrationFlag;
+        uint256 timestamp;
+        bytes32 evidenceHash;
+        address pool;
+    }
+
+    mapping(address => SwapSummary) public latestSwapSummary;
+
+    int256 private _score = 7000;
+    uint256 private _confidence = 100;
+
+    function setSummary(address wallet, SwapSummary calldata summary) external {
+        latestSwapSummary[wallet] = summary;
+    }
+
+    function setResult(int256 score_, uint256 confidence_) external {
+        _score = score_;
+        _confidence = confidence_;
+    }
+
+    function name() external pure override returns (string memory) {
+        return "UniswapScoreModule";
+    }
+
+    function category() external pure override returns (string memory) {
+        return "dex";
+    }
+
+    function metricNames() external pure override returns (string[] memory metrics) {
+        metrics = new string[](0);
+    }
+
+    function evaluate(address wallet)
+        external
+        view
+        override
+        returns (int256 score, uint256 confidence, bytes32 evidence)
+    {
+        SwapSummary memory summary = latestSwapSummary[wallet];
+        return (_score, _confidence, summary.evidenceHash);
+    }
+}
+
+contract MockCorrelationBaseActivityModule is IScoreModule {
+    struct ActivitySummary {
+        uint256 txCount;
+        uint256 firstTxTimestamp;
+        uint256 lastTxTimestamp;
+        uint256 uniqueCounterparties;
+        uint256 timestamp;
+        bytes32 evidenceHash;
+        bool sybilClusterFlag;
+    }
+
+    mapping(address => ActivitySummary) public latestActivitySummary;
+
+    int256 private _score = 7000;
+    uint256 private _confidence = 100;
+
+    function setSummary(address wallet, ActivitySummary calldata summary) external {
+        latestActivitySummary[wallet] = summary;
+    }
+
+    function setResult(int256 score_, uint256 confidence_) external {
+        _score = score_;
+        _confidence = confidence_;
+    }
+
+    function name() external pure override returns (string memory) {
+        return "BaseActivityModule";
+    }
+
+    function category() external pure override returns (string memory) {
+        return "activity";
+    }
+
+    function metricNames() external pure override returns (string[] memory metrics) {
+        metrics = new string[](0);
+    }
+
+    function evaluate(address wallet)
+        external
+        view
+        override
+        returns (int256 score, uint256 confidence, bytes32 evidence)
+    {
+        ActivitySummary memory summary = latestActivitySummary[wallet];
+        return (_score, _confidence, summary.evidenceHash);
+    }
+}
+
 contract AgentRepValidatorV2Test is Test {
     AgentRepValidatorV2 public implementation;
     AgentRepValidatorV2 public validator;
@@ -17,6 +116,7 @@ contract AgentRepValidatorV2Test is Test {
     address public user;
 
     function setUp() public {
+        vm.warp(1_700_000_000);
         governance = address(this);
         user = address(0xBEEF);
 
@@ -163,6 +263,27 @@ contract AgentRepValidatorV2Test is Test {
         vm.warp(block.timestamp + 1 days + 1);
     }
 
+    function _setupCorrelationModules()
+        internal
+        returns (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule)
+    {
+        uniswapModule = new MockCorrelationUniswapModule();
+        activityModule = new MockCorrelationBaseActivityModule();
+
+        IScoreModule[] memory mods = new IScoreModule[](2);
+        mods[0] = uniswapModule;
+        mods[1] = activityModule;
+        uint256[] memory weights = new uint256[](2);
+        weights[0] = 5000;
+        weights[1] = 5000;
+
+        validator.bootstrapModules(mods, weights);
+        identity.register("https://example.com");
+        identity.setAgentWallet(0, user);
+        validator.setCooldown(0);
+        vm.warp(block.timestamp + 1 days + 1);
+    }
+
     function test_AdaptiveWeightDecaysAfterThreshold() public {
         MockScoreModule mod = new MockScoreModule("Stale", "test", 0, 0, bytes32(0));
         _setupModuleAndAgent(mod);
@@ -278,6 +399,172 @@ contract AgentRepValidatorV2Test is Test {
         (,,,, uint8 threshold) = validator.getWeightPolicy();
         assertEq(threshold, 9);
         assertEq(validator.autoDeactivateThreshold(), 9);
+    }
+
+    function test_CorrelationPenalty_WashTradeAndSybilResonance() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 80,
+                volumeUSD: 10_000e6,
+                netPnL: 0,
+                avgSlippageBps: 25,
+                feeToPnlRatioBps: 300,
+                washTradeFlag: true,
+                counterpartyConcentrationFlag: false,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x1111)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 400,
+                firstTxTimestamp: block.timestamp - 180 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 20,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x2222)),
+                sybilClusterFlag: true
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 4500);
+
+        (int256 penalty, bytes32 evidenceHash, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 2500);
+        assertEq(ruleCount, 1);
+        assertTrue(evidenceHash != bytes32(0));
+    }
+
+    function test_CorrelationPenalty_ConcentrationAndLowCounterparties() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 90,
+                volumeUSD: 5_000e6,
+                netPnL: 0,
+                avgSlippageBps: 15,
+                feeToPnlRatioBps: 250,
+                washTradeFlag: false,
+                counterpartyConcentrationFlag: true,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x3333)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 300,
+                firstTxTimestamp: block.timestamp - 120 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 2,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x4444)),
+                sybilClusterFlag: false
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 5800);
+
+        (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 1200);
+        assertEq(ruleCount, 1);
+    }
+
+    function test_CorrelationPenalty_YoungWalletAndHighVolume() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 75,
+                volumeUSD: 120_000e6,
+                netPnL: 0,
+                avgSlippageBps: 20,
+                feeToPnlRatioBps: 200,
+                washTradeFlag: false,
+                counterpartyConcentrationFlag: false,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x5555)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 250,
+                firstTxTimestamp: block.timestamp - 5 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 14,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x6666)),
+                sybilClusterFlag: false
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 6000);
+
+        (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 1000);
+        assertEq(ruleCount, 1);
+    }
+
+    function test_CorrelationPenalty_NoSignal() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 10,
+                volumeUSD: 1_000e6,
+                netPnL: 0,
+                avgSlippageBps: 10,
+                feeToPnlRatioBps: 100,
+                washTradeFlag: false,
+                counterpartyConcentrationFlag: false,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x7777)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 200,
+                firstTxTimestamp: block.timestamp - 90 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 12,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x8888)),
+                sybilClusterFlag: false
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 7000);
+
+        (int256 penalty, bytes32 evidenceHash, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 0);
+        assertEq(ruleCount, 0);
+        assertEq(evidenceHash, bytes32(0));
     }
 
     function test_GetModuleHealth() public {

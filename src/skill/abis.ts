@@ -128,6 +128,18 @@ export const validatorAbi = [
     type: "function",
   },
   {
+    inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],
+    name: "getCorrelationAssessment",
+    outputs: [
+      { internalType: "int256", name: "penalty", type: "int256" },
+      { internalType: "bytes32", name: "evidenceHash", type: "bytes32" },
+      { internalType: "uint8", name: "ruleCount", type: "uint8" },
+      { internalType: "uint256", name: "timestamp", type: "uint256" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     name: "modules",
     outputs: [

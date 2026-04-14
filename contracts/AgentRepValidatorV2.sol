@@ -7,6 +7,39 @@ import "./interfaces/IScoreModule.sol";
 import "./interfaces/IERC8004.sol";
 import "./ScoreConstants.sol";
 
+interface IUniswapCorrelationView {
+    function latestSwapSummary(address wallet)
+        external
+        view
+        returns (
+            uint256 swapCount,
+            uint256 volumeUSD,
+            int256 netPnL,
+            uint256 avgSlippageBps,
+            uint256 feeToPnlRatioBps,
+            bool washTradeFlag,
+            bool counterpartyConcentrationFlag,
+            uint256 timestamp,
+            bytes32 evidenceHash,
+            address pool
+        );
+}
+
+interface IBaseActivityCorrelationView {
+    function latestActivitySummary(address wallet)
+        external
+        view
+        returns (
+            uint256 txCount,
+            uint256 firstTxTimestamp,
+            uint256 lastTxTimestamp,
+            uint256 uniqueCounterparties,
+            uint256 timestamp,
+            bytes32 evidenceHash,
+            bool sybilClusterFlag
+        );
+}
+
 contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     // ERC-8004 registries (set once in initialize, not immutable for proxy compat)
     address public identityRegistry;
@@ -115,11 +148,44 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         uint256 lastUpdatedAt;
     }
 
+    struct CorrelationAssessment {
+        int256 penalty;
+        bytes32 evidenceHash;
+        uint8 ruleCount;
+        uint256 timestamp;
+    }
+
+    struct CorrelationSignalContext {
+        bool hasUniswap;
+        bool hasActivity;
+        bool washTradeFlag;
+        bool counterpartyConcentrationFlag;
+        bool sybilClusterFlag;
+        uint256 swapCount;
+        uint256 volumeUSD;
+        uint256 uniqueCounterparties;
+        uint256 walletAgeDays;
+        bytes32 uniswapEvidenceHash;
+        bytes32 activityEvidenceHash;
+    }
+
     mapping(uint256 => uint256) public consecutiveZeroConfidence;
     uint256 public autoDeactivateThreshold;
 
     WeightPolicy public weightPolicy;
     mapping(uint256 => ModuleRuntimeState) private moduleRuntimeStates;
+    mapping(uint256 => CorrelationAssessment) private correlationAssessments;
+
+    bytes32 private constant _UNISWAP_MODULE_HASH = keccak256("UniswapScoreModule");
+    bytes32 private constant _BASE_ACTIVITY_MODULE_HASH = keccak256("BaseActivityModule");
+    uint256 public constant CORRELATION_HIGH_SWAP_THRESHOLD = 50;
+    uint256 public constant CORRELATION_LOW_COUNTERPARTIES_THRESHOLD = 2;
+    uint256 public constant CORRELATION_HIGH_VOLUME_THRESHOLD = 100_000e6;
+    uint256 public constant CORRELATION_YOUNG_WALLET_DAYS_THRESHOLD = 14;
+    int256 private constant _PENALTY_WASH_SYBIL = 2500;
+    int256 private constant _PENALTY_CONCENTRATION_LOW_COUNTERPARTIES = 1200;
+    int256 private constant _PENALTY_YOUNG_HIGH_VOLUME = 1000;
+    int256 private constant _MAX_CORRELATION_PENALTY = 5000;
 
     // Custom errors
     error CooldownNotElapsed(uint256 remaining);
@@ -143,6 +209,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     event WeightPolicyUpdated(
         bool enabled, uint16 minWeightBps, uint16 decayStepBps, uint16 recoveryStepBps, uint8 zeroConfidenceThreshold
     );
+    event CorrelationPenaltyApplied(uint256 indexed agentId, int256 penalty, bytes32 evidenceHash, uint8 ruleCount);
     event ValidationResponded(bytes32 indexed requestHash, uint256 indexed agentId, int256 score, bytes32 evidenceHash);
     event EvaluatorSet(address indexed evaluator, bool allowed);
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
@@ -421,11 +488,23 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         int256 totalScore = 0;
         uint256 totalWeight = 0;
         bytes32[] memory evidenceHashes = new bytes32[](modules.length);
+        CorrelationSignalContext memory correlationSignals;
 
         for (uint256 i = 0; i < modules.length; i++) {
             if (!modules[i].active) continue;
 
             (int256 modScore, uint256 confidence, bytes32 evidence) = modules[i].module.evaluate(wallet);
+            if (confidence > 0) {
+                bytes32 moduleNameHash = keccak256(bytes(modules[i].module.name()));
+                if (moduleNameHash == _UNISWAP_MODULE_HASH) {
+                    correlationSignals =
+                        _loadUniswapCorrelationSignals(correlationSignals, address(modules[i].module), wallet);
+                } else if (moduleNameHash == _BASE_ACTIVITY_MODULE_HASH) {
+                    correlationSignals =
+                        _loadBaseActivityCorrelationSignals(correlationSignals, address(modules[i].module), wallet);
+                }
+            }
+
             uint256 effectiveBaseWeight = _resolveAdaptiveBaseWeight(i, confidence);
             uint256 effectiveWeight = effectiveBaseWeight * confidence / 100;
             if (effectiveWeight > 0) {
@@ -443,10 +522,19 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
             totalScore = totalScore / int256(totalWeight);
         }
 
+        CorrelationAssessment memory correlation = _computeCorrelationPenalty(wallet, correlationSignals);
+        if (correlation.penalty > 0) {
+            totalScore -= correlation.penalty;
+            emit CorrelationPenaltyApplied(
+                agentId, correlation.penalty, correlation.evidenceHash, correlation.ruleCount
+            );
+        }
+
         if (totalScore > ScoreConstants.MAX_SCORE) totalScore = ScoreConstants.MAX_SCORE;
         if (totalScore < ScoreConstants.MIN_SCORE) totalScore = ScoreConstants.MIN_SCORE;
 
-        evidenceHash = keccak256(abi.encodePacked(evidenceHashes));
+        evidenceHash = keccak256(abi.encode(evidenceHashes, correlation.evidenceHash));
+        correlationAssessments[agentId] = correlation;
 
         agentScores[agentId] = AgentScore({
             score: totalScore,
@@ -577,6 +665,122 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
             effectiveBaseWeights[i] = _effectiveBaseWeightView(i);
             activeStates[i] = modules[i].active;
         }
+    }
+
+    function getCorrelationAssessment(uint256 agentId)
+        external
+        view
+        returns (int256 penalty, bytes32 evidenceHash, uint8 ruleCount, uint256 timestamp)
+    {
+        CorrelationAssessment storage assessment = correlationAssessments[agentId];
+        return (assessment.penalty, assessment.evidenceHash, assessment.ruleCount, assessment.timestamp);
+    }
+
+    function _loadUniswapCorrelationSignals(CorrelationSignalContext memory signals, address module, address wallet)
+        internal
+        view
+        returns (CorrelationSignalContext memory)
+    {
+        (
+            uint256 swapCount,
+            uint256 volumeUSD,,,,
+            bool washTradeFlag,
+            bool counterpartyConcentrationFlag,
+            uint256 timestamp,
+            bytes32 evidenceHash,
+        ) = IUniswapCorrelationView(module).latestSwapSummary(wallet);
+
+        if (swapCount == 0 || block.timestamp > timestamp + ScoreConstants.DATA_STALE_WINDOW) {
+            return signals;
+        }
+
+        signals.hasUniswap = true;
+        signals.swapCount = swapCount;
+        signals.volumeUSD = volumeUSD;
+        signals.washTradeFlag = washTradeFlag;
+        signals.counterpartyConcentrationFlag = counterpartyConcentrationFlag;
+        signals.uniswapEvidenceHash = evidenceHash;
+        return signals;
+    }
+
+    function _loadBaseActivityCorrelationSignals(
+        CorrelationSignalContext memory signals,
+        address module,
+        address wallet
+    ) internal view returns (CorrelationSignalContext memory) {
+        (
+            uint256 txCount,
+            uint256 firstTxTimestamp,,
+            uint256 uniqueCounterparties,
+            uint256 timestamp,
+            bytes32 evidenceHash,
+            bool sybilClusterFlag
+        ) = IBaseActivityCorrelationView(module).latestActivitySummary(wallet);
+
+        if (txCount == 0 || block.timestamp > timestamp + ScoreConstants.DATA_STALE_WINDOW) {
+            return signals;
+        }
+
+        signals.hasActivity = true;
+        signals.uniqueCounterparties = uniqueCounterparties;
+        signals.sybilClusterFlag = sybilClusterFlag;
+        signals.activityEvidenceHash = evidenceHash;
+        if (firstTxTimestamp <= block.timestamp) {
+            signals.walletAgeDays = (block.timestamp - firstTxTimestamp) / 1 days;
+        }
+        return signals;
+    }
+
+    function _computeCorrelationPenalty(address wallet, CorrelationSignalContext memory signals)
+        internal
+        view
+        returns (CorrelationAssessment memory)
+    {
+        int256 penalty = 0;
+        uint8 ruleCount = 0;
+        uint8 signalMask = 0;
+
+        if (signals.hasUniswap && signals.hasActivity && signals.washTradeFlag && signals.sybilClusterFlag) {
+            penalty += _PENALTY_WASH_SYBIL;
+            ruleCount += 1;
+            signalMask |= 0x01;
+        }
+
+        if (
+            signals.hasUniswap && signals.hasActivity && signals.counterpartyConcentrationFlag
+                && signals.uniqueCounterparties <= CORRELATION_LOW_COUNTERPARTIES_THRESHOLD
+                && signals.swapCount >= CORRELATION_HIGH_SWAP_THRESHOLD
+        ) {
+            penalty += _PENALTY_CONCENTRATION_LOW_COUNTERPARTIES;
+            ruleCount += 1;
+            signalMask |= 0x02;
+        }
+
+        if (
+            signals.hasUniswap && signals.hasActivity
+                && signals.walletAgeDays <= CORRELATION_YOUNG_WALLET_DAYS_THRESHOLD
+                && signals.volumeUSD >= CORRELATION_HIGH_VOLUME_THRESHOLD
+                && signals.swapCount >= CORRELATION_HIGH_SWAP_THRESHOLD
+        ) {
+            penalty += _PENALTY_YOUNG_HIGH_VOLUME;
+            ruleCount += 1;
+            signalMask |= 0x04;
+        }
+
+        if (penalty > _MAX_CORRELATION_PENALTY) {
+            penalty = _MAX_CORRELATION_PENALTY;
+        }
+
+        bytes32 evidenceHash = bytes32(0);
+        if (ruleCount > 0) {
+            evidenceHash = keccak256(
+                abi.encodePacked(wallet, signalMask, signals.uniswapEvidenceHash, signals.activityEvidenceHash)
+            );
+        }
+
+        return CorrelationAssessment({
+            penalty: penalty, evidenceHash: evidenceHash, ruleCount: ruleCount, timestamp: block.timestamp
+        });
     }
 
     function _resolveAdaptiveBaseWeight(uint256 moduleIndex, uint256 confidence) internal returns (uint256) {
