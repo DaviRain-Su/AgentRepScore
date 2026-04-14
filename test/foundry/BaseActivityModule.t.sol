@@ -360,4 +360,64 @@ contract BaseActivityModuleTest is Test {
         assertEq(confidenceAfter, confidenceBefore);
         assertEq(evidenceAfter, evidenceBefore);
     }
+
+    function test_Evaluate_PrefersAcceptedActivitySummaryOverLatestUnacceptedSummary() public {
+        BaseActivityModule.ActivitySummary memory acceptedSummary =
+            _buildActivitySummary(1200, block.timestamp - 400 days, block.timestamp, 60, block.timestamp, false);
+        acceptedSummary.evidenceHash = keccak256("accepted-activity");
+        _submitSummary(acceptedSummary);
+
+        bytes32 summaryHash = _hashActivitySummary(acceptedSummary);
+        bytes32 leafHash = _hashActivityLeaf(wallet, 1, uint64(block.number), summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE)
+        );
+        vm.prank(keeper);
+        baseModule.acceptActivityCommitment(wallet, new bytes32[](0));
+
+        (int256 acceptedScore, uint256 acceptedConfidence, bytes32 acceptedEvidence) = baseModule.evaluate(wallet);
+
+        BaseActivityModule.ActivitySummary memory latestUnaccepted = _buildActivitySummary(
+            1, block.timestamp - 10 days, block.timestamp - 365 days, 1, block.timestamp + 1, true
+        );
+        latestUnaccepted.evidenceHash = keccak256("latest-unaccepted-activity");
+        _submitSummary(latestUnaccepted);
+
+        (int256 scoreAfter, uint256 confidenceAfter, bytes32 evidenceAfter) = baseModule.evaluate(wallet);
+
+        assertEq(scoreAfter, acceptedScore);
+        assertEq(confidenceAfter, acceptedConfidence);
+        assertEq(evidenceAfter, acceptedEvidence);
+        assertEq(evidenceAfter, acceptedSummary.evidenceHash);
+        assertTrue(evidenceAfter != latestUnaccepted.evidenceHash);
+    }
+
+    function test_Evaluate_FallsBackToLatestWhenAcceptedActivitySummaryIsStale() public {
+        BaseActivityModule.ActivitySummary memory acceptedSummary =
+            _buildActivitySummary(1200, block.timestamp - 400 days, block.timestamp, 60, block.timestamp, false);
+        acceptedSummary.evidenceHash = keccak256("stale-accepted-activity");
+        _submitSummary(acceptedSummary);
+
+        bytes32 summaryHash = _hashActivitySummary(acceptedSummary);
+        bytes32 leafHash = _hashActivityLeaf(wallet, 1, uint64(block.number), summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE)
+        );
+        vm.prank(keeper);
+        baseModule.acceptActivityCommitment(wallet, new bytes32[](0));
+
+        vm.warp(block.timestamp + ScoreConstants.DATA_STALE_WINDOW + 1);
+
+        BaseActivityModule.ActivitySummary memory latestSummary =
+            _buildActivitySummary(100, block.timestamp - 100 days, block.timestamp, 10, block.timestamp, false);
+        latestSummary.evidenceHash = keccak256("fresh-legacy-activity");
+        _submitSummary(latestSummary);
+
+        (int256 score, uint256 confidence, bytes32 evidence) = baseModule.evaluate(wallet);
+
+        assertEq(evidence, latestSummary.evidenceHash);
+        assertGt(score, 0);
+        assertEq(confidence, 100);
+        assertTrue(evidence != acceptedSummary.evidenceHash);
+    }
 }

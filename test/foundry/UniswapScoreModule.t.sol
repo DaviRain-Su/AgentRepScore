@@ -440,4 +440,63 @@ contract UniswapScoreModuleTest is Test {
         assertEq(confidenceAfter, confidenceBefore);
         assertEq(evidenceAfter, evidenceBefore);
     }
+
+    function test_Evaluate_PrefersAcceptedSwapSummaryOverLatestUnacceptedSummary() public {
+        UniswapScoreModule.SwapSummary memory acceptedSummary =
+            _buildSwapSummary(50, 200_000e6, 5_000e6, 5, false, false, block.timestamp, address(0));
+        acceptedSummary.evidenceHash = keccak256("accepted-uniswap");
+        _submitSummary(acceptedSummary);
+
+        bytes32 summaryHash = _hashSwapSummary(acceptedSummary);
+        bytes32 leafHash = _hashSwapLeaf(wallet, 1, uint64(block.number), summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE)
+        );
+        vm.prank(keeper);
+        uniModule.acceptSwapCommitment(wallet, new bytes32[](0));
+
+        (int256 acceptedScore, uint256 acceptedConfidence, bytes32 acceptedEvidence) = uniModule.evaluate(wallet);
+
+        UniswapScoreModule.SwapSummary memory latestUnaccepted =
+            _buildSwapSummary(1, 0, -50_000e6, 100, true, true, block.timestamp + 1, address(0));
+        latestUnaccepted.evidenceHash = keccak256("latest-unaccepted-uniswap");
+        _submitSummary(latestUnaccepted);
+
+        (int256 scoreAfter, uint256 confidenceAfter, bytes32 evidenceAfter) = uniModule.evaluate(wallet);
+
+        assertEq(scoreAfter, acceptedScore);
+        assertEq(confidenceAfter, acceptedConfidence);
+        assertEq(evidenceAfter, acceptedEvidence);
+        assertEq(evidenceAfter, acceptedSummary.evidenceHash);
+        assertTrue(evidenceAfter != latestUnaccepted.evidenceHash);
+    }
+
+    function test_Evaluate_FallsBackToLatestWhenAcceptedSwapSummaryIsStale() public {
+        UniswapScoreModule.SwapSummary memory acceptedSummary =
+            _buildSwapSummary(50, 200_000e6, 5_000e6, 5, false, false, block.timestamp, address(0));
+        acceptedSummary.evidenceHash = keccak256("stale-accepted-uniswap");
+        _submitSummary(acceptedSummary);
+
+        bytes32 summaryHash = _hashSwapSummary(acceptedSummary);
+        bytes32 leafHash = _hashSwapLeaf(wallet, 1, uint64(block.number), summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE)
+        );
+        vm.prank(keeper);
+        uniModule.acceptSwapCommitment(wallet, new bytes32[](0));
+
+        vm.warp(block.timestamp + ScoreConstants.DATA_STALE_WINDOW + 1);
+
+        UniswapScoreModule.SwapSummary memory latestSummary =
+            _buildSwapSummary(10, 5_000e6, 1_000e6, 5, false, false, block.timestamp, address(0));
+        latestSummary.evidenceHash = keccak256("fresh-legacy-uniswap");
+        _submitSummary(latestSummary);
+
+        (int256 score, uint256 confidence, bytes32 evidence) = uniModule.evaluate(wallet);
+
+        assertEq(evidence, latestSummary.evidenceHash);
+        assertGt(score, 0);
+        assertEq(confidence, 100);
+        assertTrue(evidence != acceptedSummary.evidenceHash);
+    }
 }

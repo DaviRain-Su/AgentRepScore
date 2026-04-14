@@ -34,6 +34,7 @@ contract BaseActivityModule is IScoreModule {
     mapping(address => ActivitySummary) public latestActivitySummary;
     mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestActivityCommitment;
     mapping(address => IEvidenceCommitment.EvidenceCommitmentAcceptance) private acceptedActivityCommitment;
+    mapping(address => ActivitySummary) private acceptedActivitySummary;
 
     event ActivitySummarySubmitted(
         address indexed wallet,
@@ -213,6 +214,7 @@ contract BaseActivityModule is IScoreModule {
             proofType: commitment.proofType,
             verifiedAt: verifiedAt
         });
+        acceptedActivitySummary[wallet] = summary;
 
         emit ActivityCommitmentAccepted(
             wallet,
@@ -248,6 +250,47 @@ contract BaseActivityModule is IScoreModule {
         );
     }
 
+    function _isActivitySummaryEvaluable(ActivitySummary memory summary) private view returns (bool) {
+        return summary.txCount != 0 && block.timestamp <= summary.timestamp + ScoreConstants.DATA_STALE_WINDOW;
+    }
+
+    function _isAcceptedActivityBindingValid(
+        address wallet,
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted,
+        ActivitySummary memory summary
+    ) private pure returns (bool) {
+        if (!accepted.accepted || !EvidenceCommitmentLib.isValidProofType(accepted.proofType) || summary.timestamp == 0)
+        {
+            return false;
+        }
+        bytes32 summaryHash = _hashActivitySummary(summary);
+        if (summaryHash != accepted.summaryHash) {
+            return false;
+        }
+        bytes32 leafHash =
+            EvidenceCommitmentLib.hashLeaf("activity", wallet, accepted.epoch, accepted.blockNumber, summaryHash);
+        return leafHash == accepted.leafHash;
+    }
+
+    function _resolvePreferredActivitySummary(address wallet) private view returns (ActivitySummary memory) {
+        ActivitySummary memory latest = latestActivitySummary[wallet];
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted = acceptedActivityCommitment[wallet];
+        if (!accepted.accepted) {
+            return latest;
+        }
+
+        ActivitySummary memory verified = acceptedActivitySummary[wallet];
+        if (!_isAcceptedActivityBindingValid(wallet, accepted, verified)) {
+            return latest;
+        }
+
+        if (!_isActivitySummaryEvaluable(verified)) {
+            return latest;
+        }
+
+        return verified;
+    }
+
     function name() external pure override returns (string memory) {
         return "BaseActivityModule";
     }
@@ -272,9 +315,8 @@ contract BaseActivityModule is IScoreModule {
         override
         returns (int256 score, uint256 confidence, bytes32 evidence)
     {
-        ActivitySummary memory s = latestActivitySummary[wallet];
-
-        if (s.txCount == 0 || block.timestamp > s.timestamp + ScoreConstants.DATA_STALE_WINDOW) {
+        ActivitySummary memory s = _resolvePreferredActivitySummary(wallet);
+        if (!_isActivitySummaryEvaluable(s)) {
             return (0, 0, bytes32(0));
         }
 

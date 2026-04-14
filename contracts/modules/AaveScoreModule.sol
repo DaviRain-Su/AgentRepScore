@@ -46,6 +46,7 @@ contract AaveScoreModule is IScoreModule {
     mapping(address => WalletMeta) public walletMeta;
     mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestWalletMetaCommitment;
     mapping(address => IEvidenceCommitment.EvidenceCommitmentAcceptance) private acceptedWalletMetaCommitment;
+    mapping(address => WalletMeta) private acceptedWalletMeta;
 
     event LiquidationCountUpdated(
         address indexed wallet, uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp
@@ -214,6 +215,7 @@ contract AaveScoreModule is IScoreModule {
             proofType: commitment.proofType,
             verifiedAt: verifiedAt
         });
+        acceptedWalletMeta[wallet] = summary;
 
         emit WalletMetaCommitmentAccepted(
             wallet,
@@ -237,6 +239,39 @@ contract AaveScoreModule is IScoreModule {
 
     function _hashWalletMeta(WalletMeta memory summary) private pure returns (bytes32) {
         return keccak256(abi.encodePacked(summary.liquidationCount, summary.suppliedAssetCount, summary.timestamp));
+    }
+
+    function _isAcceptedWalletMetaBindingValid(
+        address wallet,
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted,
+        WalletMeta memory summary
+    ) private pure returns (bool) {
+        if (!accepted.accepted || !EvidenceCommitmentLib.isValidProofType(accepted.proofType) || summary.timestamp == 0)
+        {
+            return false;
+        }
+        bytes32 summaryHash = _hashWalletMeta(summary);
+        if (summaryHash != accepted.summaryHash) {
+            return false;
+        }
+        bytes32 leafHash =
+            EvidenceCommitmentLib.hashLeaf("aave", wallet, accepted.epoch, accepted.blockNumber, summaryHash);
+        return leafHash == accepted.leafHash;
+    }
+
+    function _resolvePreferredWalletMeta(address wallet) private view returns (WalletMeta memory) {
+        WalletMeta memory latest = walletMeta[wallet];
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted = acceptedWalletMetaCommitment[wallet];
+        if (!accepted.accepted) {
+            return latest;
+        }
+
+        WalletMeta memory verified = acceptedWalletMeta[wallet];
+        if (!_isAcceptedWalletMetaBindingValid(wallet, accepted, verified)) {
+            return latest;
+        }
+
+        return verified;
     }
 
     function name() external pure override returns (string memory) {
@@ -287,7 +322,7 @@ contract AaveScoreModule is IScoreModule {
             score -= 3000;
         }
 
-        WalletMeta memory meta = walletMeta[wallet];
+        WalletMeta memory meta = _resolvePreferredWalletMeta(wallet);
         uint256 liquidationCount = meta.liquidationCount;
         score -= int256(liquidationCount * 1500);
 

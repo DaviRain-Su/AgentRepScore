@@ -346,4 +346,46 @@ contract AaveScoreModuleTest is Test {
         assertEq(confidenceAfter, confidenceBefore);
         assertEq(evidenceAfter, evidenceBefore);
     }
+
+    function test_Evaluate_PrefersAcceptedWalletMetaOverLatestUnacceptedMeta() public {
+        _setData(1000e8, 500e8, 2e18);
+        _submitWalletMeta(0, 3, block.timestamp);
+
+        bytes32 acceptedSummaryHash = _hashWalletMetaSummary(0, 3, block.timestamp);
+        bytes32 acceptedLeafHash = _hashWalletMetaLeaf(wallet, 1, uint64(block.number), acceptedSummaryHash);
+        _submitCommitment(
+            wallet,
+            _buildCommitment(
+                acceptedLeafHash,
+                acceptedLeafHash,
+                acceptedSummaryHash,
+                1,
+                uint64(block.number),
+                EvidenceProofType.MERKLE
+            )
+        );
+        vm.prank(keeper);
+        aaveModule.acceptWalletMetaCommitment(wallet, new bytes32[](0));
+
+        (int256 acceptedScore, uint256 acceptedConfidence, bytes32 acceptedEvidence) = aaveModule.evaluate(wallet);
+
+        _submitWalletMeta(5, 1, block.timestamp + 1);
+        (int256 scoreAfter, uint256 confidenceAfter, bytes32 evidenceAfter) = aaveModule.evaluate(wallet);
+
+        assertEq(scoreAfter, acceptedScore);
+        assertEq(confidenceAfter, acceptedConfidence);
+        assertEq(evidenceAfter, acceptedEvidence);
+    }
+
+    function test_Evaluate_UsesLatestWalletMetaWhenNoAcceptedCommitment() public {
+        _setData(1000e8, 500e8, 2e18);
+        _submitWalletMeta(0, 3, block.timestamp);
+        (int256 initialScore,, bytes32 initialEvidence) = aaveModule.evaluate(wallet);
+
+        _submitWalletMeta(5, 1, block.timestamp + 1);
+        (int256 updatedScore,, bytes32 updatedEvidence) = aaveModule.evaluate(wallet);
+
+        assertTrue(updatedScore != initialScore);
+        assertTrue(updatedEvidence != initialEvidence);
+    }
 }

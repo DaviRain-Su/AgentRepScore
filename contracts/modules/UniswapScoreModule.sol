@@ -52,6 +52,7 @@ contract UniswapScoreModule is IScoreModule {
     mapping(address => SwapSummary) public latestSwapSummary;
     mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestSwapCommitment;
     mapping(address => IEvidenceCommitment.EvidenceCommitmentAcceptance) private acceptedSwapCommitment;
+    mapping(address => SwapSummary) private acceptedSwapSummary;
 
     event SwapSummarySubmitted(
         address indexed wallet,
@@ -253,6 +254,7 @@ contract UniswapScoreModule is IScoreModule {
             proofType: commitment.proofType,
             verifiedAt: verifiedAt
         });
+        acceptedSwapSummary[wallet] = summary;
 
         emit SwapCommitmentAccepted(
             wallet,
@@ -291,6 +293,47 @@ contract UniswapScoreModule is IScoreModule {
         );
     }
 
+    function _isSwapSummaryEvaluable(SwapSummary memory summary) private view returns (bool) {
+        return summary.swapCount != 0 && block.timestamp <= summary.timestamp + ScoreConstants.DATA_STALE_WINDOW;
+    }
+
+    function _isAcceptedSwapBindingValid(
+        address wallet,
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted,
+        SwapSummary memory summary
+    ) private pure returns (bool) {
+        if (!accepted.accepted || !EvidenceCommitmentLib.isValidProofType(accepted.proofType) || summary.timestamp == 0)
+        {
+            return false;
+        }
+        bytes32 summaryHash = _hashSwapSummary(summary);
+        if (summaryHash != accepted.summaryHash) {
+            return false;
+        }
+        bytes32 leafHash =
+            EvidenceCommitmentLib.hashLeaf("uniswap", wallet, accepted.epoch, accepted.blockNumber, summaryHash);
+        return leafHash == accepted.leafHash;
+    }
+
+    function _resolvePreferredSwapSummary(address wallet) private view returns (SwapSummary memory) {
+        SwapSummary memory latest = latestSwapSummary[wallet];
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted = acceptedSwapCommitment[wallet];
+        if (!accepted.accepted) {
+            return latest;
+        }
+
+        SwapSummary memory verified = acceptedSwapSummary[wallet];
+        if (!_isAcceptedSwapBindingValid(wallet, accepted, verified)) {
+            return latest;
+        }
+
+        if (!_isSwapSummaryEvaluable(verified)) {
+            return latest;
+        }
+
+        return verified;
+    }
+
     function name() external pure override returns (string memory) {
         return "UniswapScoreModule";
     }
@@ -316,9 +359,8 @@ contract UniswapScoreModule is IScoreModule {
         override
         returns (int256 score, uint256 confidence, bytes32 evidence)
     {
-        SwapSummary memory s = latestSwapSummary[wallet];
-
-        if (s.swapCount == 0 || block.timestamp > s.timestamp + ScoreConstants.DATA_STALE_WINDOW) {
+        SwapSummary memory s = _resolvePreferredSwapSummary(wallet);
+        if (!_isSwapSummaryEvaluable(s)) {
             return (0, 0, bytes32(0));
         }
 
