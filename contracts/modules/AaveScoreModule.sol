@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "../interfaces/IScoreModule.sol";
+import "../interfaces/IEvidenceCommitment.sol";
 import "../ScoreConstants.sol";
 import "../lib/EIP712Lib.sol";
 
@@ -36,9 +37,19 @@ contract AaveScoreModule is IScoreModule {
     }
 
     mapping(address => WalletMeta) public walletMeta;
+    mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestWalletMetaCommitment;
 
     event LiquidationCountUpdated(
         address indexed wallet, uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp
+    );
+    event WalletMetaCommitmentSubmitted(
+        address indexed wallet,
+        bytes32 root,
+        bytes32 leafHash,
+        bytes32 summaryHash,
+        uint64 epoch,
+        uint64 blockNumber,
+        uint8 proofType
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -120,6 +131,31 @@ contract AaveScoreModule is IScoreModule {
             liquidationCount: liquidationCount, suppliedAssetCount: suppliedAssetCount, timestamp: timestamp
         });
         emit LiquidationCountUpdated(wallet, liquidationCount, suppliedAssetCount, timestamp);
+    }
+
+    function submitWalletMetaCommitment(address wallet, IEvidenceCommitment.EvidenceCommitment calldata commitment)
+        external
+        onlyKeeper
+        whenNotPaused
+    {
+        latestWalletMetaCommitment[wallet] = commitment;
+        emit WalletMetaCommitmentSubmitted(
+            wallet,
+            commitment.root,
+            commitment.leafHash,
+            commitment.summaryHash,
+            commitment.epoch,
+            commitment.blockNumber,
+            commitment.proofType
+        );
+    }
+
+    function getLatestWalletMetaCommitment(address wallet)
+        external
+        view
+        returns (IEvidenceCommitment.EvidenceCommitment memory)
+    {
+        return latestWalletMetaCommitment[wallet];
     }
 
     function name() external pure override returns (string memory) {

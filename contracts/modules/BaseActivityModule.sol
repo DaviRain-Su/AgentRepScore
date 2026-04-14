@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "../interfaces/IScoreModule.sol";
+import "../interfaces/IEvidenceCommitment.sol";
 import "../ScoreConstants.sol";
 import "../lib/EIP712Lib.sol";
 
@@ -24,6 +25,7 @@ contract BaseActivityModule is IScoreModule {
     }
 
     mapping(address => ActivitySummary) public latestActivitySummary;
+    mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestActivityCommitment;
 
     event ActivitySummarySubmitted(
         address indexed wallet,
@@ -31,6 +33,15 @@ contract BaseActivityModule is IScoreModule {
         uint256 uniqueCounterparties,
         bytes32 evidenceHash,
         bool sybilClusterFlag
+    );
+    event ActivityCommitmentSubmitted(
+        address indexed wallet,
+        bytes32 root,
+        bytes32 leafHash,
+        bytes32 summaryHash,
+        uint64 epoch,
+        uint64 blockNumber,
+        uint8 proofType
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -119,6 +130,31 @@ contract BaseActivityModule is IScoreModule {
         emit ActivitySummarySubmitted(
             wallet, summary.txCount, summary.uniqueCounterparties, summary.evidenceHash, summary.sybilClusterFlag
         );
+    }
+
+    function submitActivityCommitment(address wallet, IEvidenceCommitment.EvidenceCommitment calldata commitment)
+        external
+        onlyKeeper
+        whenNotPaused
+    {
+        latestActivityCommitment[wallet] = commitment;
+        emit ActivityCommitmentSubmitted(
+            wallet,
+            commitment.root,
+            commitment.leafHash,
+            commitment.summaryHash,
+            commitment.epoch,
+            commitment.blockNumber,
+            commitment.proofType
+        );
+    }
+
+    function getLatestActivityCommitment(address wallet)
+        external
+        view
+        returns (IEvidenceCommitment.EvidenceCommitment memory)
+    {
+        return latestActivityCommitment[wallet];
     }
 
     function name() external pure override returns (string memory) {

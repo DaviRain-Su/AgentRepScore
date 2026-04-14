@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../../contracts/modules/AaveScoreModule.sol";
+import "../../contracts/interfaces/IEvidenceCommitment.sol";
 import "../../contracts/mocks/MockAavePool.sol";
 import "../../contracts/ScoreConstants.sol";
 import "../../contracts/lib/EIP712Lib.sol";
@@ -51,6 +52,29 @@ contract AaveScoreModuleTest is Test {
 
     function _setData(uint256 collateral, uint256 debt, uint256 healthFactor) internal {
         mockPool.setUserAccountData(wallet, collateral, debt, 0, 0, 0, healthFactor);
+    }
+
+    function _buildCommitment(
+        bytes32 root,
+        bytes32 leafHash,
+        bytes32 summaryHash,
+        uint64 epoch,
+        uint64 blockNumber,
+        uint8 proofType
+    ) internal pure returns (IEvidenceCommitment.EvidenceCommitment memory) {
+        return IEvidenceCommitment.EvidenceCommitment({
+            root: root,
+            leafHash: leafHash,
+            summaryHash: summaryHash,
+            epoch: epoch,
+            blockNumber: blockNumber,
+            proofType: proofType
+        });
+    }
+
+    function _submitCommitment(address wallet_, IEvidenceCommitment.EvidenceCommitment memory commitment) internal {
+        vm.prank(keeper);
+        aaveModule.submitWalletMetaCommitment(wallet_, commitment);
     }
 
     function test_NoActivity() public {
@@ -158,5 +182,57 @@ contract AaveScoreModuleTest is Test {
         assertTrue(aaveModule.paused());
         aaveModule.unpause();
         assertFalse(aaveModule.paused());
+    }
+
+    function test_WalletMetaCommitmentCanBeWritten() public {
+        IEvidenceCommitment.EvidenceCommitment memory commitment =
+            _buildCommitment(keccak256("root-1"), keccak256("leaf-1"), keccak256("summary-1"), 1, 100, 1);
+
+        _submitCommitment(wallet, commitment);
+
+        IEvidenceCommitment.EvidenceCommitment memory stored = aaveModule.getLatestWalletMetaCommitment(wallet);
+        assertEq(stored.root, commitment.root);
+        assertEq(stored.leafHash, commitment.leafHash);
+        assertEq(stored.summaryHash, commitment.summaryHash);
+        assertEq(stored.epoch, commitment.epoch);
+        assertEq(stored.blockNumber, commitment.blockNumber);
+        assertEq(stored.proofType, commitment.proofType);
+    }
+
+    function test_WalletMetaCommitmentCanBeOverwritten() public {
+        IEvidenceCommitment.EvidenceCommitment memory first =
+            _buildCommitment(keccak256("root-1"), keccak256("leaf-1"), keccak256("summary-1"), 1, 100, 1);
+        IEvidenceCommitment.EvidenceCommitment memory second =
+            _buildCommitment(keccak256("root-2"), keccak256("leaf-2"), keccak256("summary-2"), 2, 101, 2);
+
+        _submitCommitment(wallet, first);
+        _submitCommitment(wallet, second);
+
+        IEvidenceCommitment.EvidenceCommitment memory stored = aaveModule.getLatestWalletMetaCommitment(wallet);
+        assertEq(stored.root, second.root);
+        assertEq(stored.leafHash, second.leafHash);
+        assertEq(stored.summaryHash, second.summaryHash);
+        assertEq(stored.epoch, second.epoch);
+        assertEq(stored.blockNumber, second.blockNumber);
+        assertEq(stored.proofType, second.proofType);
+    }
+
+    function test_WalletMetaAndCommitmentCoexistWithoutChangingEvaluate() public {
+        _setData(1000e8, 500e8, 2e18);
+        bytes memory sig = _signWalletMeta(keeperPrivateKey, wallet, 2, 3, block.timestamp);
+        aaveModule.submitWalletMeta(wallet, 2, 3, block.timestamp, sig);
+        (int256 scoreBefore, uint256 confidenceBefore, bytes32 evidenceBefore) = aaveModule.evaluate(wallet);
+
+        IEvidenceCommitment.EvidenceCommitment memory commitment =
+            _buildCommitment(keccak256("root-3"), keccak256("leaf-3"), keccak256("summary-3"), 3, 102, 1);
+        _submitCommitment(wallet, commitment);
+
+        (int256 scoreAfter, uint256 confidenceAfter, bytes32 evidenceAfter) = aaveModule.evaluate(wallet);
+        IEvidenceCommitment.EvidenceCommitment memory stored = aaveModule.getLatestWalletMetaCommitment(wallet);
+
+        assertEq(scoreAfter, scoreBefore);
+        assertEq(confidenceAfter, confidenceBefore);
+        assertEq(evidenceAfter, evidenceBefore);
+        assertEq(stored.root, commitment.root);
     }
 }

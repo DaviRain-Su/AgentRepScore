@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../../contracts/modules/UniswapScoreModule.sol";
+import "../../contracts/interfaces/IEvidenceCommitment.sol";
 import "../../contracts/ScoreConstants.sol";
 import "../../contracts/lib/EIP712Lib.sol";
 import "../../contracts/mocks/MockUniswapV3Pool.sol";
@@ -77,6 +78,29 @@ contract UniswapScoreModuleTest is Test {
         });
         bytes memory sig = _signSwapSummary(keeperPrivateKey, wallet, summary);
         uniModule.submitSwapSummary(wallet, summary, sig);
+    }
+
+    function _buildCommitment(
+        bytes32 root,
+        bytes32 leafHash,
+        bytes32 summaryHash,
+        uint64 epoch,
+        uint64 blockNumber,
+        uint8 proofType
+    ) internal pure returns (IEvidenceCommitment.EvidenceCommitment memory) {
+        return IEvidenceCommitment.EvidenceCommitment({
+            root: root,
+            leafHash: leafHash,
+            summaryHash: summaryHash,
+            epoch: epoch,
+            blockNumber: blockNumber,
+            proofType: proofType
+        });
+    }
+
+    function _submitCommitment(address wallet_, IEvidenceCommitment.EvidenceCommitment memory commitment) internal {
+        vm.prank(keeper);
+        uniModule.submitSwapCommitment(wallet_, commitment);
     }
 
     function test_NoHistory() public view {
@@ -215,5 +239,54 @@ contract UniswapScoreModuleTest is Test {
         (int256 score, uint256 confidence,) = uniModule.evaluate(wallet);
         assertGt(score, ScoreConstants.BASE_UNISWAP_SCORE);
         assertEq(confidence, 100);
+    }
+
+    function test_SwapCommitmentCanBeWritten() public {
+        IEvidenceCommitment.EvidenceCommitment memory commitment =
+            _buildCommitment(keccak256("root-1"), keccak256("leaf-1"), keccak256("summary-1"), 1, 100, 1);
+
+        _submitCommitment(wallet, commitment);
+
+        IEvidenceCommitment.EvidenceCommitment memory stored = uniModule.getLatestSwapCommitment(wallet);
+        assertEq(stored.root, commitment.root);
+        assertEq(stored.leafHash, commitment.leafHash);
+        assertEq(stored.summaryHash, commitment.summaryHash);
+        assertEq(stored.epoch, commitment.epoch);
+        assertEq(stored.blockNumber, commitment.blockNumber);
+        assertEq(stored.proofType, commitment.proofType);
+    }
+
+    function test_SwapCommitmentCanBeOverwritten() public {
+        IEvidenceCommitment.EvidenceCommitment memory first =
+            _buildCommitment(keccak256("root-1"), keccak256("leaf-1"), keccak256("summary-1"), 1, 100, 1);
+        IEvidenceCommitment.EvidenceCommitment memory second =
+            _buildCommitment(keccak256("root-2"), keccak256("leaf-2"), keccak256("summary-2"), 2, 101, 2);
+
+        _submitCommitment(wallet, first);
+        _submitCommitment(wallet, second);
+
+        IEvidenceCommitment.EvidenceCommitment memory stored = uniModule.getLatestSwapCommitment(wallet);
+        assertEq(stored.root, second.root);
+        assertEq(stored.leafHash, second.leafHash);
+        assertEq(stored.summaryHash, second.summaryHash);
+        assertEq(stored.epoch, second.epoch);
+        assertEq(stored.blockNumber, second.blockNumber);
+        assertEq(stored.proofType, second.proofType);
+    }
+
+    function test_SwapSummaryAndCommitmentCoexistWithoutChangingEvaluate() public {
+        _submit(10, 5000e6, 1000e6, 5, false, false, block.timestamp, address(0));
+        (int256 scoreBefore, uint256 confidenceBefore, bytes32 evidenceBefore) = uniModule.evaluate(wallet);
+        IEvidenceCommitment.EvidenceCommitment memory commitment =
+            _buildCommitment(keccak256("root-3"), keccak256("leaf-3"), keccak256("summary-3"), 3, 102, 1);
+        _submitCommitment(wallet, commitment);
+
+        (int256 scoreAfter, uint256 confidenceAfter, bytes32 evidenceAfter) = uniModule.evaluate(wallet);
+        IEvidenceCommitment.EvidenceCommitment memory stored = uniModule.getLatestSwapCommitment(wallet);
+
+        assertEq(scoreAfter, scoreBefore);
+        assertEq(confidenceAfter, confidenceBefore);
+        assertEq(evidenceAfter, evidenceBefore);
+        assertEq(stored.root, commitment.root);
     }
 }

@@ -44,6 +44,128 @@ export const identityRegistryAbi = [
   },
 ] as const;
 
+export const evidenceCommitmentTupleComponents = [
+  { internalType: "bytes32", name: "root", type: "bytes32" },
+  { internalType: "bytes32", name: "leafHash", type: "bytes32" },
+  { internalType: "bytes32", name: "summaryHash", type: "bytes32" },
+  { internalType: "uint64", name: "epoch", type: "uint64" },
+  { internalType: "uint64", name: "blockNumber", type: "uint64" },
+  { internalType: "uint8", name: "proofType", type: "uint8" },
+] as const;
+
+export const evidenceCommitmentViewAbi = [
+  {
+    inputs: [{ internalType: "address", name: "wallet", type: "address" }],
+    name: "getEvidenceCommitment",
+    outputs: [
+      {
+        components: evidenceCommitmentTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitment",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
+export const uniswapEvidenceCommitmentAbi = [
+  {
+    inputs: [{ internalType: "address", name: "wallet", type: "address" }],
+    name: "getLatestSwapCommitment",
+    outputs: [
+      {
+        components: evidenceCommitmentTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitment",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "wallet", type: "address" },
+      {
+        components: evidenceCommitmentTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitment",
+        name: "commitment",
+        type: "tuple",
+      },
+    ],
+    name: "submitSwapCommitment",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const;
+
+export const baseActivityEvidenceCommitmentAbi = [
+  {
+    inputs: [{ internalType: "address", name: "wallet", type: "address" }],
+    name: "getLatestActivityCommitment",
+    outputs: [
+      {
+        components: evidenceCommitmentTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitment",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "wallet", type: "address" },
+      {
+        components: evidenceCommitmentTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitment",
+        name: "commitment",
+        type: "tuple",
+      },
+    ],
+    name: "submitActivityCommitment",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const;
+
+export const aaveEvidenceCommitmentAbi = [
+  {
+    inputs: [{ internalType: "address", name: "wallet", type: "address" }],
+    name: "getLatestWalletMetaCommitment",
+    outputs: [
+      {
+        components: evidenceCommitmentTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitment",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "wallet", type: "address" },
+      {
+        components: evidenceCommitmentTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitment",
+        name: "commitment",
+        type: "tuple",
+      },
+    ],
+    name: "submitWalletMetaCommitment",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const;
+
 export const validatorAbi = [
   {
     inputs: [{ internalType: "uint256", name: "agentId", type: "uint256" }],

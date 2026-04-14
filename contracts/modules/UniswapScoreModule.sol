@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "../interfaces/IScoreModule.sol";
+import "../interfaces/IEvidenceCommitment.sol";
 import "../ScoreConstants.sol";
 import "../lib/EIP712Lib.sol";
 
@@ -42,6 +43,7 @@ contract UniswapScoreModule is IScoreModule {
     }
 
     mapping(address => SwapSummary) public latestSwapSummary;
+    mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestSwapCommitment;
 
     event SwapSummarySubmitted(
         address indexed wallet,
@@ -52,6 +54,15 @@ contract UniswapScoreModule is IScoreModule {
         bool counterpartyConcentrationFlag,
         bytes32 evidenceHash,
         address pool
+    );
+    event SwapCommitmentSubmitted(
+        address indexed wallet,
+        bytes32 root,
+        bytes32 leafHash,
+        bytes32 summaryHash,
+        uint64 epoch,
+        uint64 blockNumber,
+        uint8 proofType
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -159,6 +170,31 @@ contract UniswapScoreModule is IScoreModule {
             summary.evidenceHash,
             summary.pool
         );
+    }
+
+    function submitSwapCommitment(address wallet, IEvidenceCommitment.EvidenceCommitment calldata commitment)
+        external
+        onlyKeeper
+        whenNotPaused
+    {
+        latestSwapCommitment[wallet] = commitment;
+        emit SwapCommitmentSubmitted(
+            wallet,
+            commitment.root,
+            commitment.leafHash,
+            commitment.summaryHash,
+            commitment.epoch,
+            commitment.blockNumber,
+            commitment.proofType
+        );
+    }
+
+    function getLatestSwapCommitment(address wallet)
+        external
+        view
+        returns (IEvidenceCommitment.EvidenceCommitment memory)
+    {
+        return latestSwapCommitment[wallet];
     }
 
     function name() external pure override returns (string memory) {
