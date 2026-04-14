@@ -39,6 +39,19 @@ contract AgentRepValidatorV2Test is Test {
         assertEq(validator.governance(), governance);
         assertTrue(validator.evaluators(governance));
         assertEq(validator.evaluationCooldown(), 1 days);
+        (
+            bool enabled,
+            uint16 minWeightBps,
+            uint16 decayStepBps,
+            uint16 recoveryStepBps,
+            uint8 zeroConfidenceThreshold
+        ) = validator.getWeightPolicy();
+        assertTrue(enabled);
+        assertEq(minWeightBps, 2000);
+        assertEq(decayStepBps, 500);
+        assertEq(recoveryStepBps, 250);
+        assertEq(zeroConfidenceThreshold, 3);
+        assertEq(validator.autoDeactivateThreshold(), 3);
     }
 
     function test_Version() public view {
@@ -135,7 +148,7 @@ contract AgentRepValidatorV2Test is Test {
         assertFalse(validator.paused());
     }
 
-    // --- Dynamic weight / auto-deactivation tests ---
+    // --- Adaptive weight tests ---
 
     function _setupModuleAndAgent(MockScoreModule mod) internal {
         IScoreModule[] memory mods = new IScoreModule[](1);
@@ -150,83 +163,121 @@ contract AgentRepValidatorV2Test is Test {
         vm.warp(block.timestamp + 1 days + 1);
     }
 
-    function test_AutoDeactivateAfterThreshold() public {
+    function test_AdaptiveWeightDecaysAfterThreshold() public {
         MockScoreModule mod = new MockScoreModule("Stale", "test", 0, 0, bytes32(0));
         _setupModuleAndAgent(mod);
 
-        validator.setAutoDeactivateThreshold(3);
+        validator.setWeightPolicy(true, 2000, 1000, 500, 2);
 
-        // Each evaluation with confidence=0 increments the counter
-        for (uint256 i = 0; i < 3; i++) {
-            vm.warp(block.timestamp + 1 days + 1);
-            validator.evaluateAgent(0);
-        }
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+        (uint256 streak1, uint256 effective1,) = validator.getModuleRuntimeState(0);
+        assertEq(streak1, 1);
+        assertEq(effective1, 10000);
 
-        // Module should be auto-deactivated
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+        (uint256 streak2, uint256 effective2,) = validator.getModuleRuntimeState(0);
+        assertEq(streak2, 2);
+        assertEq(effective2, 9000);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+        (uint256 streak3, uint256 effective3,) = validator.getModuleRuntimeState(0);
+        assertEq(streak3, 3);
+        assertEq(effective3, 8000);
+
         (,, bool active) = validator.modules(0);
-        assertFalse(active);
-        assertEq(validator.consecutiveZeroConfidence(0), 3);
+        assertTrue(active);
     }
 
-    function test_ConfidenceRecoveryResetsCounter() public {
+    function test_AdaptiveWeightRecoveryCappedByNominalWeight() public {
         MockScoreModule mod = new MockScoreModule("Flaky", "test", 5000, 0, bytes32(0));
         _setupModuleAndAgent(mod);
 
-        validator.setAutoDeactivateThreshold(5);
+        validator.setWeightPolicy(true, 2000, 2000, 500, 1);
 
-        // 3 rounds of zero confidence
-        for (uint256 i = 0; i < 3; i++) {
-            vm.warp(block.timestamp + 1 days + 1);
-            validator.evaluateAgent(0);
-        }
-        assertEq(validator.consecutiveZeroConfidence(0), 3);
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+        (, uint256 decayedWeight,) = validator.getModuleRuntimeState(0);
+        assertEq(decayedWeight, 8000);
 
-        // Module recovers confidence
         mod.setResult(5000, 100, bytes32(uint256(0xaa)));
         vm.warp(block.timestamp + 1 days + 1);
         validator.evaluateAgent(0);
-
-        // Counter resets
-        assertEq(validator.consecutiveZeroConfidence(0), 0);
-        (,, bool active) = validator.modules(0);
-        assertTrue(active);
-    }
-
-    function test_ManualReactivationResetsCounter() public {
-        MockScoreModule mod = new MockScoreModule("Dead", "test", 0, 0, bytes32(0));
-        _setupModuleAndAgent(mod);
-
-        validator.setAutoDeactivateThreshold(2);
-
-        for (uint256 i = 0; i < 2; i++) {
-            vm.warp(block.timestamp + 1 days + 1);
-            validator.evaluateAgent(0);
-        }
-
-        (,, bool active) = validator.modules(0);
-        assertFalse(active);
-
-        // Governance re-activates
-        validator.setModuleActive(0, true);
-        (,, active) = validator.modules(0);
-        assertTrue(active);
-        assertEq(validator.consecutiveZeroConfidence(0), 0);
-    }
-
-    function test_ThresholdZeroDisablesAutoDeactivation() public {
-        MockScoreModule mod = new MockScoreModule("AlwaysZero", "test", 0, 0, bytes32(0));
-        _setupModuleAndAgent(mod);
-
-        validator.setAutoDeactivateThreshold(0);
+        (uint256 streakAfterRecovery, uint256 recoveredWeight,) = validator.getModuleRuntimeState(0);
+        assertEq(streakAfterRecovery, 0);
+        assertEq(recoveredWeight, 8500);
 
         for (uint256 i = 0; i < 10; i++) {
             vm.warp(block.timestamp + 1 days + 1);
             validator.evaluateAgent(0);
         }
 
-        // Module stays active despite 10 zero-confidence rounds
-        (,, bool active) = validator.modules(0);
-        assertTrue(active);
+        (, uint256 finalWeight,) = validator.getModuleRuntimeState(0);
+        assertEq(finalWeight, 10000);
+    }
+
+    function test_AdaptiveWeightRespectsMinimumFloor() public {
+        MockScoreModule mod = new MockScoreModule("Floor", "test", 0, 0, bytes32(0));
+        _setupModuleAndAgent(mod);
+
+        validator.setWeightPolicy(true, 8000, 2000, 500, 1);
+
+        for (uint256 i = 0; i < 5; i++) {
+            vm.warp(block.timestamp + 1 days + 1);
+            validator.evaluateAgent(0);
+        }
+
+        (uint256 streak, uint256 effectiveWeight,) = validator.getModuleRuntimeState(0);
+        assertEq(streak, 5);
+        assertEq(effectiveWeight, 8000);
+    }
+
+    function test_DisablingPolicyResetsEffectiveWeight() public {
+        MockScoreModule mod = new MockScoreModule("Toggle", "test", 0, 0, bytes32(0));
+        _setupModuleAndAgent(mod);
+
+        validator.setWeightPolicy(true, 2000, 2000, 500, 1);
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+        (, uint256 effectiveWhenEnabled,) = validator.getModuleRuntimeState(0);
+        assertEq(effectiveWhenEnabled, 8000);
+
+        validator.setWeightPolicy(false, 0, 0, 0, 0);
+        (uint256 streakAfterDisable, uint256 effectiveWhenDisabled,) = validator.getModuleRuntimeState(0);
+        assertEq(streakAfterDisable, 0);
+        assertEq(effectiveWhenDisabled, 10000);
+    }
+
+    function test_GetEffectiveWeights() public {
+        MockScoreModule mod = new MockScoreModule("Weights", "test", 0, 0, bytes32(0));
+        _setupModuleAndAgent(mod);
+
+        validator.setWeightPolicy(true, 2000, 1000, 500, 2);
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+        vm.warp(block.timestamp + 1 days + 1);
+        validator.evaluateAgent(0);
+
+        (
+            string[] memory names,
+            uint256[] memory nominalWeights,
+            uint256[] memory effectiveBaseWeights,
+            bool[] memory activeStates
+        ) = validator.getEffectiveWeights();
+        assertEq(names.length, 1);
+        assertEq(names[0], "Weights");
+        assertEq(nominalWeights[0], 10000);
+        assertEq(effectiveBaseWeights[0], 9000);
+        assertTrue(activeStates[0]);
+    }
+
+    function test_SetAutoDeactivateThresholdUpdatesPolicyThreshold() public {
+        validator.setAutoDeactivateThreshold(9);
+        (,,,, uint8 threshold) = validator.getWeightPolicy();
+        assertEq(threshold, 9);
+        assertEq(validator.autoDeactivateThreshold(), 9);
     }
 
     function test_GetModuleHealth() public {

@@ -23,6 +23,7 @@ export interface ModulesOutput {
     category: string;
     address: `0x${string}`;
     weight: number;
+    effectiveBaseWeight?: number;
     active: boolean;
   }[];
 }
@@ -40,5 +41,7 @@ export interface ScoreOutput {
     score: number;
     confidence: number;
     weight: number;
+    effectiveBaseWeight?: number;
+    effectiveWeight?: number;
   }[];
 }

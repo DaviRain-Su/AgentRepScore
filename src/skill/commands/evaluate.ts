@@ -59,31 +59,42 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     throw new Error("evaluateAgent transaction failed");
   }
 
-  const latest = await publicClient.readContract({
-    address: VALIDATOR_ADDRESS,
-    abi: validatorAbi,
-    functionName: "getLatestScore",
-    args: [BigInt(input.agentId)],
-  });
-
-  const modules = await publicClient.readContract({
-    address: VALIDATOR_ADDRESS,
-    abi: validatorAbi,
-    functionName: "getModuleScores",
-    args: [BigInt(input.agentId)],
-  });
-
-  const moduleConfigs = await publicClient.readContract({
-    address: VALIDATOR_ADDRESS,
-    abi: validatorAbi,
-    functionName: "getModulesWithNames",
-  });
+  const [latest, modules, moduleConfigs, effectiveWeights] = await Promise.all([
+    publicClient.readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getLatestScore",
+      args: [BigInt(input.agentId)],
+    }),
+    publicClient.readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getModuleScores",
+      args: [BigInt(input.agentId)],
+    }),
+    publicClient.readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getModulesWithNames",
+    }),
+    publicClient.readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getEffectiveWeights",
+    }),
+  ]);
 
   const [, moduleNames, , moduleWeights] = moduleConfigs;
+  const [effectiveNames, , effectiveBaseWeights] = effectiveWeights;
 
-  const weights: Record<string, number> = {};
+  const nominalWeightsByName: Record<string, number> = {};
   for (let i = 0; i < moduleNames.length; i++) {
-    weights[moduleNames[i]] = Number(moduleWeights[i]);
+    nominalWeightsByName[moduleNames[i]] = Number(moduleWeights[i]);
+  }
+
+  const effectiveWeightsByName: Record<string, number> = {};
+  for (let i = 0; i < effectiveNames.length; i++) {
+    effectiveWeightsByName[effectiveNames[i]] = Number(effectiveBaseWeights[i]);
   }
 
   const rawScore = Number(latest[0]);
@@ -91,12 +102,19 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
   const evidenceHash = latest[2];
   const decayedScore = applyDecay(rawScore, timestamp);
 
-  const moduleBreakdown = modules[0].map((name, i) => ({
-    name,
-    score: Number(modules[1][i]),
-    confidence: Number(modules[2][i]),
-    weight: weights[name] ?? 0,
-  }));
+  const moduleBreakdown = modules[0].map((name, i) => {
+    const confidence = Number(modules[2][i]);
+    const weight = nominalWeightsByName[name] ?? 0;
+    const effectiveBaseWeight = effectiveWeightsByName[name] ?? weight;
+    return {
+      name,
+      score: Number(modules[1][i]),
+      confidence,
+      weight,
+      effectiveBaseWeight,
+      effectiveWeight: Math.floor((effectiveBaseWeight * confidence) / 100),
+    };
+  });
 
   return {
     agentId: input.agentId,

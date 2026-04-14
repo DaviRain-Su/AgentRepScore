@@ -92,6 +92,42 @@ export const validatorAbi = [
     type: "function",
   },
   {
+    inputs: [],
+    name: "getEffectiveWeights",
+    outputs: [
+      { internalType: "string[]", name: "names", type: "string[]" },
+      { internalType: "uint256[]", name: "nominalWeights", type: "uint256[]" },
+      { internalType: "uint256[]", name: "effectiveBaseWeights", type: "uint256[]" },
+      { internalType: "bool[]", name: "activeStates", type: "bool[]" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "getWeightPolicy",
+    outputs: [
+      { internalType: "bool", name: "enabled", type: "bool" },
+      { internalType: "uint16", name: "minWeightBps", type: "uint16" },
+      { internalType: "uint16", name: "decayStepBps", type: "uint16" },
+      { internalType: "uint16", name: "recoveryStepBps", type: "uint16" },
+      { internalType: "uint8", name: "zeroConfidenceThreshold", type: "uint8" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "moduleIndex", type: "uint256" }],
+    name: "getModuleRuntimeState",
+    outputs: [
+      { internalType: "uint256", name: "zeroConfidenceStreak", type: "uint256" },
+      { internalType: "uint256", name: "effectiveBaseWeight", type: "uint256" },
+      { internalType: "uint256", name: "lastUpdatedAt", type: "uint256" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     name: "modules",
     outputs: [

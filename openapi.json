@@ -322,7 +322,9 @@
           "name": { "type": "string" },
           "score": { "type": "number" },
           "confidence": { "type": "number" },
-          "weight": { "type": "number" }
+          "weight": { "type": "number" },
+          "effectiveBaseWeight": { "type": "number" },
+          "effectiveWeight": { "type": "number" }
         }
       },
       "CompareResultItem": {
@@ -355,6 +357,7 @@
           "category": { "type": "string" },
           "address": { "type": "string" },
           "weight": { "type": "number" },
+          "effectiveBaseWeight": { "type": "number" },
           "active": { "type": "boolean" }
         }
       },

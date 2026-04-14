@@ -101,10 +101,25 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     address public pendingGovernance;
     uint256 public bootstrapDeadline;
 
-    // Dynamic weight: track consecutive zero-confidence evaluations per module
+    struct WeightPolicy {
+        bool enabled;
+        uint16 minWeightBps;
+        uint16 decayStepBps;
+        uint16 recoveryStepBps;
+        uint8 zeroConfidenceThreshold;
+    }
+
+    struct ModuleRuntimeState {
+        uint256 zeroConfidenceStreak;
+        uint256 effectiveBaseWeight;
+        uint256 lastUpdatedAt;
+    }
+
     mapping(uint256 => uint256) public consecutiveZeroConfidence;
     uint256 public autoDeactivateThreshold;
-    event ModuleAutoDeactivated(uint256 indexed moduleIndex, address indexed module, uint256 consecutiveZeros);
+
+    WeightPolicy public weightPolicy;
+    mapping(uint256 => ModuleRuntimeState) private moduleRuntimeStates;
 
     // Custom errors
     error CooldownNotElapsed(uint256 remaining);
@@ -116,12 +131,17 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     error ValidationAlreadyHandled(bytes32 requestHash);
     error ValidationRequestNotFound(bytes32 requestHash);
     error BootstrapExpired();
+    error InvalidWeightPolicy(uint16 minWeightBps, uint16 decayStepBps, uint16 recoveryStepBps);
+    error ThresholdOutOfRange(uint256 threshold);
 
     // Events
     event ModuleRegistered(address indexed module, uint256 weight);
     event ModuleUpdated(uint256 indexed index, uint256 newWeight, bool active);
     event AgentEvaluated(
         uint256 indexed agentId, int256 score, int128 normalizedScore, uint8 valueDecimals, bytes32 evidenceHash
+    );
+    event WeightPolicyUpdated(
+        bool enabled, uint16 minWeightBps, uint16 decayStepBps, uint16 recoveryStepBps, uint8 zeroConfidenceThreshold
     );
     event ValidationResponded(bytes32 indexed requestHash, uint256 indexed agentId, int256 score, bytes32 evidenceHash);
     event EvaluatorSet(address indexed evaluator, bool allowed);
@@ -151,7 +171,10 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         evaluators[governance_] = true;
         evaluationCooldown = ScoreConstants.COOLDOWN_DEFAULT;
         bootstrapDeadline = block.timestamp + 1 hours;
-        autoDeactivateThreshold = 5;
+        weightPolicy = WeightPolicy({
+            enabled: true, minWeightBps: 2000, decayStepBps: 500, recoveryStepBps: 250, zeroConfidenceThreshold: 3
+        });
+        autoDeactivateThreshold = weightPolicy.zeroConfidenceThreshold;
         _status = _NOT_ENTERED;
     }
 
@@ -176,6 +199,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         uint256 totalWeight = _totalActiveWeight();
         if (totalWeight + weight > 10000) revert TotalWeightExceeded(totalWeight + weight);
         modules.push(ModuleConfig({module: module, weight: weight, active: true}));
+        _resetModuleRuntimeState(modules.length - 1, weight);
         emit ModuleRegistered(address(module), weight);
     }
 
@@ -191,6 +215,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         _validateTimelock(opHash);
         if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
         modules[moduleIndex].weight = newWeight;
+        _resetModuleRuntimeState(moduleIndex, newWeight);
         uint256 totalWeight = _totalActiveWeight();
         if (totalWeight > 10000) revert TotalWeightExceeded(totalWeight);
         emit ModuleUpdated(moduleIndex, newWeight, modules[moduleIndex].active);
@@ -243,6 +268,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
             uint256 totalWeight = _totalActiveWeight();
             if (totalWeight + weights[i] > 10000) revert TotalWeightExceeded(totalWeight + weights[i]);
             modules.push(ModuleConfig({module: moduleList[i], weight: weights[i], active: true}));
+            _resetModuleRuntimeState(modules.length - 1, weights[i]);
             emit ModuleRegistered(address(moduleList[i]), weights[i]);
         }
     }
@@ -259,9 +285,11 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
         modules[moduleIndex].active = active;
         if (active) {
-            consecutiveZeroConfidence[moduleIndex] = 0;
+            _resetModuleRuntimeState(moduleIndex, modules[moduleIndex].weight);
             uint256 totalWeight = _totalActiveWeight();
             if (totalWeight > 10000) revert TotalWeightExceeded(totalWeight);
+        } else {
+            moduleRuntimeStates[moduleIndex].lastUpdatedAt = block.timestamp;
         }
         emit ModuleUpdated(moduleIndex, modules[moduleIndex].weight, active);
     }
@@ -271,7 +299,83 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     }
 
     function setAutoDeactivateThreshold(uint256 threshold) external onlyGovernance whenNotPaused {
+        if (threshold > type(uint8).max) revert ThresholdOutOfRange(threshold);
+        weightPolicy.zeroConfidenceThreshold = uint8(threshold);
         autoDeactivateThreshold = threshold;
+        emit WeightPolicyUpdated(
+            weightPolicy.enabled,
+            weightPolicy.minWeightBps,
+            weightPolicy.decayStepBps,
+            weightPolicy.recoveryStepBps,
+            weightPolicy.zeroConfidenceThreshold
+        );
+    }
+
+    function setWeightPolicy(
+        bool enabled,
+        uint16 minWeightBps,
+        uint16 decayStepBps,
+        uint16 recoveryStepBps,
+        uint8 zeroConfidenceThreshold
+    ) external onlyGovernance whenNotPaused {
+        if (minWeightBps > 10000 || decayStepBps > 10000 || recoveryStepBps > 10000) {
+            revert InvalidWeightPolicy(minWeightBps, decayStepBps, recoveryStepBps);
+        }
+
+        weightPolicy = WeightPolicy({
+            enabled: enabled,
+            minWeightBps: minWeightBps,
+            decayStepBps: decayStepBps,
+            recoveryStepBps: recoveryStepBps,
+            zeroConfidenceThreshold: zeroConfidenceThreshold
+        });
+        autoDeactivateThreshold = zeroConfidenceThreshold;
+
+        for (uint256 i = 0; i < modules.length; i++) {
+            ModuleRuntimeState storage runtime = moduleRuntimeStates[i];
+            runtime.lastUpdatedAt = block.timestamp;
+            if (!enabled) {
+                runtime.zeroConfidenceStreak = 0;
+                runtime.effectiveBaseWeight = modules[i].weight;
+                consecutiveZeroConfidence[i] = 0;
+                continue;
+            }
+
+            if (runtime.effectiveBaseWeight == 0 && modules[i].weight > 0) {
+                runtime.effectiveBaseWeight = modules[i].weight;
+            }
+            uint256 minWeight = _minAdaptiveWeight(modules[i].weight);
+            if (runtime.effectiveBaseWeight < minWeight) {
+                runtime.effectiveBaseWeight = minWeight;
+            }
+            if (runtime.effectiveBaseWeight > modules[i].weight) {
+                runtime.effectiveBaseWeight = modules[i].weight;
+            }
+            consecutiveZeroConfidence[i] = runtime.zeroConfidenceStreak;
+        }
+
+        emit WeightPolicyUpdated(enabled, minWeightBps, decayStepBps, recoveryStepBps, zeroConfidenceThreshold);
+    }
+
+    function getWeightPolicy()
+        external
+        view
+        returns (
+            bool enabled,
+            uint16 minWeightBps,
+            uint16 decayStepBps,
+            uint16 recoveryStepBps,
+            uint8 zeroConfidenceThreshold
+        )
+    {
+        WeightPolicy memory policy = weightPolicy;
+        return (
+            policy.enabled,
+            policy.minWeightBps,
+            policy.decayStepBps,
+            policy.recoveryStepBps,
+            policy.zeroConfidenceThreshold
+        );
     }
 
     function moduleCount() external view returns (uint256) {
@@ -322,20 +426,8 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
             if (!modules[i].active) continue;
 
             (int256 modScore, uint256 confidence, bytes32 evidence) = modules[i].module.evaluate(wallet);
-
-            // Track consecutive zero-confidence and auto-deactivate
-            if (confidence == 0) {
-                consecutiveZeroConfidence[i]++;
-                if (autoDeactivateThreshold > 0 && consecutiveZeroConfidence[i] >= autoDeactivateThreshold) {
-                    modules[i].active = false;
-                    emit ModuleAutoDeactivated(i, address(modules[i].module), consecutiveZeroConfidence[i]);
-                    emit ModuleUpdated(i, modules[i].weight, false);
-                }
-            } else {
-                consecutiveZeroConfidence[i] = 0;
-            }
-
-            uint256 effectiveWeight = modules[i].weight * confidence / 100;
+            uint256 effectiveBaseWeight = _resolveAdaptiveBaseWeight(i, confidence);
+            uint256 effectiveWeight = effectiveBaseWeight * confidence / 100;
             if (effectiveWeight > 0) {
                 totalScore += modScore * int256(effectiveWeight);
                 totalWeight += effectiveWeight;
@@ -448,8 +540,121 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
 
         for (uint256 i = 0; i < len; i++) {
             names[i] = modules[i].module.name();
-            zeroStreaks[i] = consecutiveZeroConfidence[i];
+            zeroStreaks[i] = moduleRuntimeStates[i].zeroConfidenceStreak;
             activeStates[i] = modules[i].active;
         }
+    }
+
+    function getModuleRuntimeState(uint256 moduleIndex)
+        external
+        view
+        returns (uint256 zeroConfidenceStreak, uint256 effectiveBaseWeight, uint256 lastUpdatedAt)
+    {
+        if (moduleIndex >= modules.length) revert ModuleIndexOutOfBounds(moduleIndex);
+        ModuleRuntimeState storage runtime = moduleRuntimeStates[moduleIndex];
+        return (runtime.zeroConfidenceStreak, _effectiveBaseWeightView(moduleIndex), runtime.lastUpdatedAt);
+    }
+
+    function getEffectiveWeights()
+        external
+        view
+        returns (
+            string[] memory names,
+            uint256[] memory nominalWeights,
+            uint256[] memory effectiveBaseWeights,
+            bool[] memory activeStates
+        )
+    {
+        uint256 len = modules.length;
+        names = new string[](len);
+        nominalWeights = new uint256[](len);
+        effectiveBaseWeights = new uint256[](len);
+        activeStates = new bool[](len);
+
+        for (uint256 i = 0; i < len; i++) {
+            names[i] = modules[i].module.name();
+            nominalWeights[i] = modules[i].weight;
+            effectiveBaseWeights[i] = _effectiveBaseWeightView(i);
+            activeStates[i] = modules[i].active;
+        }
+    }
+
+    function _resolveAdaptiveBaseWeight(uint256 moduleIndex, uint256 confidence) internal returns (uint256) {
+        ModuleRuntimeState storage runtime = moduleRuntimeStates[moduleIndex];
+        uint256 nominalWeight = modules[moduleIndex].weight;
+
+        if (!weightPolicy.enabled) {
+            runtime.zeroConfidenceStreak = confidence == 0 ? runtime.zeroConfidenceStreak + 1 : 0;
+            runtime.effectiveBaseWeight = nominalWeight;
+            runtime.lastUpdatedAt = block.timestamp;
+            consecutiveZeroConfidence[moduleIndex] = runtime.zeroConfidenceStreak;
+            return nominalWeight;
+        }
+
+        if (runtime.effectiveBaseWeight == 0 && nominalWeight > 0) {
+            runtime.effectiveBaseWeight = nominalWeight;
+        }
+
+        uint256 minWeight = _minAdaptiveWeight(nominalWeight);
+        if (runtime.effectiveBaseWeight < minWeight) {
+            runtime.effectiveBaseWeight = minWeight;
+        }
+
+        if (confidence == 0) {
+            runtime.zeroConfidenceStreak += 1;
+            if (
+                weightPolicy.zeroConfidenceThreshold > 0
+                    && runtime.zeroConfidenceStreak >= weightPolicy.zeroConfidenceThreshold
+                    && weightPolicy.decayStepBps > 0
+            ) {
+                uint256 decayed = runtime.effectiveBaseWeight > weightPolicy.decayStepBps
+                    ? runtime.effectiveBaseWeight - weightPolicy.decayStepBps
+                    : 0;
+                runtime.effectiveBaseWeight = decayed < minWeight ? minWeight : decayed;
+            }
+        } else {
+            runtime.zeroConfidenceStreak = 0;
+            if (runtime.effectiveBaseWeight < nominalWeight && weightPolicy.recoveryStepBps > 0) {
+                uint256 recovered = runtime.effectiveBaseWeight + weightPolicy.recoveryStepBps;
+                runtime.effectiveBaseWeight = recovered > nominalWeight ? nominalWeight : recovered;
+            }
+        }
+
+        if (runtime.effectiveBaseWeight > nominalWeight) {
+            runtime.effectiveBaseWeight = nominalWeight;
+        }
+
+        runtime.lastUpdatedAt = block.timestamp;
+        consecutiveZeroConfidence[moduleIndex] = runtime.zeroConfidenceStreak;
+        return runtime.effectiveBaseWeight;
+    }
+
+    function _effectiveBaseWeightView(uint256 moduleIndex) internal view returns (uint256) {
+        uint256 nominalWeight = modules[moduleIndex].weight;
+        if (!weightPolicy.enabled) return nominalWeight;
+        uint256 effective = moduleRuntimeStates[moduleIndex].effectiveBaseWeight;
+        if (effective == 0 && nominalWeight > 0) {
+            return nominalWeight;
+        }
+        if (effective > nominalWeight) {
+            return nominalWeight;
+        }
+        uint256 minWeight = _minAdaptiveWeight(nominalWeight);
+        if (effective < minWeight) {
+            return minWeight;
+        }
+        return effective;
+    }
+
+    function _minAdaptiveWeight(uint256 nominalWeight) internal view returns (uint256) {
+        return nominalWeight * uint256(weightPolicy.minWeightBps) / 10000;
+    }
+
+    function _resetModuleRuntimeState(uint256 moduleIndex, uint256 nominalWeight) internal {
+        ModuleRuntimeState storage runtime = moduleRuntimeStates[moduleIndex];
+        runtime.zeroConfidenceStreak = 0;
+        runtime.effectiveBaseWeight = nominalWeight;
+        runtime.lastUpdatedAt = block.timestamp;
+        consecutiveZeroConfidence[moduleIndex] = 0;
     }
 }

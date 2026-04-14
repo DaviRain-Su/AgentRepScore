@@ -28,6 +28,18 @@ describe("simulate", () => {
     expect(result.moduleBreakdown[1].effectiveWeight).toBe(5000);
   });
 
+  it("uses runtime effective base weight when provided", () => {
+    const modules: ModuleInput[] = [
+      { name: "Degraded", score: 9000, confidence: 100, weight: 6000, effectiveBaseWeight: 4000 },
+      { name: "Healthy", score: 3000, confidence: 100, weight: 4000, effectiveBaseWeight: 4000 },
+    ];
+    const result = computeScore(modules);
+    // (9000*4000 + 3000*4000) / 8000 = 6000
+    expect(result.rawScore).toBe(6000);
+    expect(result.moduleBreakdown[0].effectiveBaseWeight).toBe(4000);
+    expect(result.totalWeight).toBe(8000);
+  });
+
   it("returns zero for empty modules", () => {
     const result = computeScore([]);
     expect(result.rawScore).toBe(0);

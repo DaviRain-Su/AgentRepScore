@@ -12,6 +12,7 @@ export interface ModuleInput {
   score: number;
   confidence: number;
   weight: number;
+  effectiveBaseWeight?: number;
 }
 
 export interface SimulateInput {
@@ -30,6 +31,7 @@ export interface SimulateOutput {
     score: number;
     confidence: number;
     weight: number;
+    effectiveBaseWeight: number;
     effectiveWeight: number;
     contribution: number;
   }[];
@@ -40,7 +42,8 @@ export function computeScore(modules: ModuleInput[]): SimulateOutput {
   let totalWeight = 0;
 
   const breakdown = modules.map((m) => {
-    const effectiveWeight = Math.floor((m.weight * m.confidence) / 100);
+    const effectiveBaseWeight = m.effectiveBaseWeight ?? m.weight;
+    const effectiveWeight = Math.floor((effectiveBaseWeight * m.confidence) / 100);
     const contribution = effectiveWeight > 0 ? m.score * effectiveWeight : 0;
     if (effectiveWeight > 0) {
       totalScore += contribution;
@@ -51,6 +54,7 @@ export function computeScore(modules: ModuleInput[]): SimulateOutput {
       score: m.score,
       confidence: m.confidence,
       weight: m.weight,
+      effectiveBaseWeight,
       effectiveWeight,
       contribution,
     };
@@ -87,6 +91,7 @@ export async function simulate(input: SimulateInput): Promise<SimulateOutput> {
     modules = modules.map((m) => ({
       ...m,
       weight: input.weightOverrides![m.name] ?? m.weight,
+      effectiveBaseWeight: input.weightOverrides![m.name] ?? m.effectiveBaseWeight ?? m.weight,
     }));
   }
 
@@ -102,7 +107,7 @@ async function fetchModuleScoresFromChain(agentId: string): Promise<ModuleInput[
   const publicClient = createPublicClient({ chain, transport: http(config.rpc) });
   const VALIDATOR = config.validatorAddress as `0x${string}`;
 
-  const [moduleConfigs, moduleScores] = await Promise.all([
+  const [moduleConfigs, moduleScores, effectiveWeightData] = await Promise.all([
     publicClient.readContract({
       address: VALIDATOR,
       abi: validatorAbi,
@@ -114,19 +119,31 @@ async function fetchModuleScoresFromChain(agentId: string): Promise<ModuleInput[
       functionName: "getModuleScores",
       args: [BigInt(agentId)],
     }),
+    publicClient.readContract({
+      address: VALIDATOR,
+      abi: validatorAbi,
+      functionName: "getEffectiveWeights",
+    }),
   ]);
 
   const [, names, , weights, activeStates] = moduleConfigs;
   const [, scores, confidences] = moduleScores;
+  const [effectiveNames, , effectiveBaseWeights] = effectiveWeightData;
+  const effectiveByName: Record<string, number> = {};
+  for (let i = 0; i < effectiveNames.length; i++) {
+    effectiveByName[effectiveNames[i]] = Number(effectiveBaseWeights[i]);
+  }
 
   const modules: ModuleInput[] = [];
   for (let i = 0; i < names.length; i++) {
     if (!activeStates[i]) continue;
+    const weight = Number(weights[i]);
     modules.push({
       name: names[i],
       score: Number(scores[i]),
       confidence: Number(confidences[i]),
-      weight: Number(weights[i]),
+      weight,
+      effectiveBaseWeight: effectiveByName[names[i]] ?? weight,
     });
   }
 

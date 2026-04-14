@@ -17,21 +17,35 @@ export async function modules(): Promise<ModulesOutput> {
     transport: http(config.rpc),
   });
 
-  const moduleData = await publicClient.readContract({
-    address: VALIDATOR_ADDRESS,
-    abi: validatorAbi,
-    functionName: "getModulesWithNames",
-  });
+  const [moduleData, effectiveWeightData] = await Promise.all([
+    publicClient.readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getModulesWithNames",
+    }),
+    publicClient.readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getEffectiveWeights",
+    }),
+  ]);
 
   const [addresses_, names, categories, weights, activeStates] = moduleData;
+  const [effectiveNames, , effectiveBaseWeights] = effectiveWeightData;
+  const effectiveByName: Record<string, number> = {};
+  for (let i = 0; i < effectiveNames.length; i++) {
+    effectiveByName[effectiveNames[i]] = Number(effectiveBaseWeights[i]);
+  }
 
   const moduleList: ModulesOutput["modules"] = [];
   for (let i = 0; i < names.length; i++) {
+    const weight = Number(weights[i]);
     moduleList.push({
       name: names[i],
       category: categories[i],
       address: addresses_[i],
-      weight: Number(weights[i]),
+      weight,
+      effectiveBaseWeight: effectiveByName[names[i]] ?? weight,
       active: activeStates[i],
     });
   }
