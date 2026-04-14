@@ -53,6 +53,17 @@ export const evidenceCommitmentTupleComponents = [
   { internalType: "uint8", name: "proofType", type: "uint8" },
 ] as const;
 
+export const evidenceCommitmentAcceptanceTupleComponents = [
+  { internalType: "bool", name: "accepted", type: "bool" },
+  { internalType: "bytes32", name: "root", type: "bytes32" },
+  { internalType: "bytes32", name: "leafHash", type: "bytes32" },
+  { internalType: "bytes32", name: "summaryHash", type: "bytes32" },
+  { internalType: "uint64", name: "epoch", type: "uint64" },
+  { internalType: "uint64", name: "blockNumber", type: "uint64" },
+  { internalType: "uint8", name: "proofType", type: "uint8" },
+  { internalType: "uint64", name: "verifiedAt", type: "uint64" },
+] as const;
+
 export const evidenceCommitmentViewAbi = [
   {
     inputs: [{ internalType: "address", name: "wallet", type: "address" }],
@@ -100,6 +111,30 @@ export const uniswapEvidenceCommitmentAbi = [
     stateMutability: "nonpayable",
     type: "function",
   },
+  {
+    inputs: [{ internalType: "address", name: "wallet", type: "address" }],
+    name: "getAcceptedSwapCommitment",
+    outputs: [
+      {
+        components: evidenceCommitmentAcceptanceTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitmentAcceptance",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "wallet", type: "address" },
+      { internalType: "bytes32[]", name: "proof", type: "bytes32[]" },
+    ],
+    name: "acceptSwapCommitment",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
 ] as const;
 
 export const baseActivityEvidenceCommitmentAbi = [
@@ -132,6 +167,30 @@ export const baseActivityEvidenceCommitmentAbi = [
     stateMutability: "nonpayable",
     type: "function",
   },
+  {
+    inputs: [{ internalType: "address", name: "wallet", type: "address" }],
+    name: "getAcceptedActivityCommitment",
+    outputs: [
+      {
+        components: evidenceCommitmentAcceptanceTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitmentAcceptance",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "wallet", type: "address" },
+      { internalType: "bytes32[]", name: "proof", type: "bytes32[]" },
+    ],
+    name: "acceptActivityCommitment",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
 ] as const;
 
 export const aaveEvidenceCommitmentAbi = [
@@ -160,6 +219,30 @@ export const aaveEvidenceCommitmentAbi = [
       },
     ],
     name: "submitWalletMetaCommitment",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "wallet", type: "address" }],
+    name: "getAcceptedWalletMetaCommitment",
+    outputs: [
+      {
+        components: evidenceCommitmentAcceptanceTupleComponents,
+        internalType: "struct IEvidenceCommitment.EvidenceCommitmentAcceptance",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "wallet", type: "address" },
+      { internalType: "bytes32[]", name: "proof", type: "bytes32[]" },
+    ],
+    name: "acceptWalletMetaCommitment",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",

@@ -34,6 +34,11 @@ export interface EvidenceCommitment {
   proofType: EvidenceProofType;
 }
 
+export interface EvidenceCommitmentAcceptance extends EvidenceCommitment {
+  accepted: boolean;
+  verifiedAt: number;
+}
+
 export interface CorrelationAssessmentOutput {
   penalty: number;
   ruleCount: number;

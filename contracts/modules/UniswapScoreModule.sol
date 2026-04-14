@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "../interfaces/IScoreModule.sol";
 import "../interfaces/IEvidenceCommitment.sol";
 import "../ScoreConstants.sol";
+import "../lib/EvidenceCommitmentLib.sol";
 import "../lib/EIP712Lib.sol";
 
 interface IUniswapV3Pool {
@@ -24,6 +25,12 @@ interface IUniswapV3Pool {
 contract UniswapScoreModule is IScoreModule {
     error UnauthorizedKeeper(address caller);
     error UnauthorizedGovernance(address caller);
+    error CommitmentNotFound(address wallet);
+    error SummaryNotFound(address wallet);
+    error InvalidProofType(uint8 proofType);
+    error SummaryHashMismatch(bytes32 expected, bytes32 actual);
+    error LeafHashMismatch(bytes32 expected, bytes32 actual);
+    error CommitmentProofInvalid();
 
     mapping(address => bool) public keepers;
     address public governance;
@@ -44,6 +51,7 @@ contract UniswapScoreModule is IScoreModule {
 
     mapping(address => SwapSummary) public latestSwapSummary;
     mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestSwapCommitment;
+    mapping(address => IEvidenceCommitment.EvidenceCommitmentAcceptance) private acceptedSwapCommitment;
 
     event SwapSummarySubmitted(
         address indexed wallet,
@@ -63,6 +71,16 @@ contract UniswapScoreModule is IScoreModule {
         uint64 epoch,
         uint64 blockNumber,
         uint8 proofType
+    );
+    event SwapCommitmentAccepted(
+        address indexed wallet,
+        bytes32 root,
+        bytes32 leafHash,
+        bytes32 summaryHash,
+        uint64 epoch,
+        uint64 blockNumber,
+        uint8 proofType,
+        uint64 verifiedAt
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -195,6 +213,82 @@ contract UniswapScoreModule is IScoreModule {
         returns (IEvidenceCommitment.EvidenceCommitment memory)
     {
         return latestSwapCommitment[wallet];
+    }
+
+    function acceptSwapCommitment(address wallet, bytes32[] calldata proof) external onlyKeeper whenNotPaused {
+        IEvidenceCommitment.EvidenceCommitment memory commitment = latestSwapCommitment[wallet];
+        if (commitment.summaryHash == bytes32(0)) revert CommitmentNotFound(wallet);
+
+        if (!EvidenceCommitmentLib.isValidProofType(commitment.proofType)) {
+            revert InvalidProofType(commitment.proofType);
+        }
+
+        SwapSummary memory summary = latestSwapSummary[wallet];
+        if (summary.timestamp == 0) revert SummaryNotFound(wallet);
+
+        bytes32 expectedSummaryHash = _hashSwapSummary(summary);
+        if (expectedSummaryHash != commitment.summaryHash) {
+            revert SummaryHashMismatch(expectedSummaryHash, commitment.summaryHash);
+        }
+
+        bytes32 expectedLeafHash = EvidenceCommitmentLib.hashLeaf(
+            "uniswap", wallet, commitment.epoch, commitment.blockNumber, commitment.summaryHash
+        );
+        if (expectedLeafHash != commitment.leafHash) {
+            revert LeafHashMismatch(expectedLeafHash, commitment.leafHash);
+        }
+
+        if (!EvidenceCommitmentLib.verifyCommitment(commitment, proof)) {
+            revert CommitmentProofInvalid();
+        }
+
+        uint64 verifiedAt = uint64(block.timestamp);
+        acceptedSwapCommitment[wallet] = IEvidenceCommitment.EvidenceCommitmentAcceptance({
+            accepted: true,
+            root: commitment.root,
+            leafHash: commitment.leafHash,
+            summaryHash: commitment.summaryHash,
+            epoch: commitment.epoch,
+            blockNumber: commitment.blockNumber,
+            proofType: commitment.proofType,
+            verifiedAt: verifiedAt
+        });
+
+        emit SwapCommitmentAccepted(
+            wallet,
+            commitment.root,
+            commitment.leafHash,
+            commitment.summaryHash,
+            commitment.epoch,
+            commitment.blockNumber,
+            commitment.proofType,
+            verifiedAt
+        );
+    }
+
+    function getAcceptedSwapCommitment(address wallet)
+        external
+        view
+        returns (IEvidenceCommitment.EvidenceCommitmentAcceptance memory)
+    {
+        return acceptedSwapCommitment[wallet];
+    }
+
+    function _hashSwapSummary(SwapSummary memory summary) private pure returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                summary.swapCount,
+                summary.volumeUSD,
+                summary.netPnL,
+                summary.avgSlippageBps,
+                summary.feeToPnlRatioBps,
+                summary.washTradeFlag,
+                summary.counterpartyConcentrationFlag,
+                summary.timestamp,
+                summary.evidenceHash,
+                summary.pool
+            )
+        );
     }
 
     function name() external pure override returns (string memory) {

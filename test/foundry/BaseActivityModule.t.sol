@@ -56,7 +56,21 @@ contract BaseActivityModuleTest is Test {
         uint256 timestamp,
         bool sybilClusterFlag
     ) internal {
-        BaseActivityModule.ActivitySummary memory summary = BaseActivityModule.ActivitySummary({
+        BaseActivityModule.ActivitySummary memory summary = _buildActivitySummary(
+            txCount, firstTx, lastTx, counterparties, timestamp, sybilClusterFlag
+        );
+        _submitSummary(summary);
+    }
+
+    function _buildActivitySummary(
+        uint256 txCount,
+        uint256 firstTx,
+        uint256 lastTx,
+        uint256 counterparties,
+        uint256 timestamp,
+        bool sybilClusterFlag
+    ) internal pure returns (BaseActivityModule.ActivitySummary memory) {
+        return BaseActivityModule.ActivitySummary({
             txCount: txCount,
             firstTxTimestamp: firstTx,
             lastTxTimestamp: lastTx,
@@ -65,6 +79,9 @@ contract BaseActivityModuleTest is Test {
             evidenceHash: keccak256("evidence"),
             sybilClusterFlag: sybilClusterFlag
         });
+    }
+
+    function _submitSummary(BaseActivityModule.ActivitySummary memory summary) internal {
         bytes memory sig = _signActivitySummary(keeperPrivateKey, wallet, summary);
         baseModule.submitActivitySummary(wallet, summary, sig);
     }
@@ -90,6 +107,28 @@ contract BaseActivityModuleTest is Test {
     function _submitCommitment(address wallet_, IEvidenceCommitment.EvidenceCommitment memory commitment) internal {
         vm.prank(keeper);
         baseModule.submitActivityCommitment(wallet_, commitment);
+    }
+
+    function _hashActivitySummary(BaseActivityModule.ActivitySummary memory summary) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                summary.txCount,
+                summary.firstTxTimestamp,
+                summary.lastTxTimestamp,
+                summary.uniqueCounterparties,
+                summary.timestamp,
+                summary.evidenceHash,
+                summary.sybilClusterFlag
+            )
+        );
+    }
+
+    function _hashActivityLeaf(address wallet_, uint64 epoch, uint64 blockNumber, bytes32 summaryHash)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked("activity", wallet_, epoch, blockNumber, summaryHash));
     }
 
     function test_NoActivity() public view {
@@ -216,5 +255,109 @@ contract BaseActivityModuleTest is Test {
         assertEq(confidenceAfter, confidenceBefore);
         assertEq(evidenceAfter, evidenceBefore);
         assertEq(stored.root, commitment.root);
+    }
+
+    function test_AcceptActivityCommitment_ValidProof() public {
+        BaseActivityModule.ActivitySummary memory summary =
+            _buildActivitySummary(100, block.timestamp - 100 days, block.timestamp, 10, block.timestamp, false);
+        _submitSummary(summary);
+
+        bytes32 summaryHash = _hashActivitySummary(summary);
+        uint64 epoch = 1;
+        uint64 blockNumber = uint64(block.number);
+        bytes32 leafHash = _hashActivityLeaf(wallet, epoch, blockNumber, summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, epoch, blockNumber, EvidenceProofType.MERKLE)
+        );
+
+        vm.prank(keeper);
+        baseModule.acceptActivityCommitment(wallet, new bytes32[](0));
+
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted =
+            baseModule.getAcceptedActivityCommitment(wallet);
+        assertTrue(accepted.accepted);
+        assertEq(accepted.root, leafHash);
+        assertEq(accepted.leafHash, leafHash);
+        assertEq(accepted.summaryHash, summaryHash);
+        assertEq(accepted.epoch, epoch);
+        assertEq(accepted.blockNumber, blockNumber);
+        assertEq(accepted.proofType, EvidenceProofType.MERKLE);
+        assertEq(accepted.verifiedAt, uint64(block.timestamp));
+    }
+
+    function test_AcceptActivityCommitment_InvalidLeafReverts() public {
+        BaseActivityModule.ActivitySummary memory summary =
+            _buildActivitySummary(100, block.timestamp - 100 days, block.timestamp, 10, block.timestamp, false);
+        _submitSummary(summary);
+
+        bytes32 summaryHash = _hashActivitySummary(summary);
+        bytes32 badLeaf = keccak256("bad-leaf");
+        _submitCommitment(
+            wallet, _buildCommitment(badLeaf, badLeaf, summaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE)
+        );
+
+        bytes32 expectedLeaf = _hashActivityLeaf(wallet, 1, uint64(block.number), summaryHash);
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(BaseActivityModule.LeafHashMismatch.selector, expectedLeaf, badLeaf));
+        baseModule.acceptActivityCommitment(wallet, new bytes32[](0));
+    }
+
+    function test_AcceptActivityCommitment_CanOverwriteAcceptance() public {
+        BaseActivityModule.ActivitySummary memory firstSummary =
+            _buildActivitySummary(100, block.timestamp - 100 days, block.timestamp, 10, block.timestamp, false);
+        _submitSummary(firstSummary);
+        bytes32 firstSummaryHash = _hashActivitySummary(firstSummary);
+        bytes32 firstLeafHash = _hashActivityLeaf(wallet, 1, uint64(block.number), firstSummaryHash);
+        _submitCommitment(
+            wallet,
+            _buildCommitment(
+                firstLeafHash, firstLeafHash, firstSummaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE
+            )
+        );
+        vm.prank(keeper);
+        baseModule.acceptActivityCommitment(wallet, new bytes32[](0));
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory firstAccepted =
+            baseModule.getAcceptedActivityCommitment(wallet);
+
+        BaseActivityModule.ActivitySummary memory secondSummary =
+            _buildActivitySummary(200, block.timestamp - 200 days, block.timestamp, 20, block.timestamp + 1, true);
+        _submitSummary(secondSummary);
+        bytes32 secondSummaryHash = _hashActivitySummary(secondSummary);
+        bytes32 secondLeafHash = _hashActivityLeaf(wallet, 2, uint64(block.number), secondSummaryHash);
+        _submitCommitment(
+            wallet,
+            _buildCommitment(
+                secondLeafHash, secondLeafHash, secondSummaryHash, 2, uint64(block.number), EvidenceProofType.MERKLE
+            )
+        );
+        vm.prank(keeper);
+        baseModule.acceptActivityCommitment(wallet, new bytes32[](0));
+
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory secondAccepted =
+            baseModule.getAcceptedActivityCommitment(wallet);
+        assertEq(secondAccepted.epoch, 2);
+        assertEq(secondAccepted.summaryHash, secondSummaryHash);
+        assertEq(secondAccepted.leafHash, secondLeafHash);
+        assertGe(secondAccepted.verifiedAt, firstAccepted.verifiedAt);
+    }
+
+    function test_AcceptActivityCommitment_DoesNotChangeEvaluatePath() public {
+        BaseActivityModule.ActivitySummary memory summary =
+            _buildActivitySummary(100, block.timestamp - 100 days, block.timestamp, 10, block.timestamp, false);
+        _submitSummary(summary);
+        (int256 scoreBefore, uint256 confidenceBefore, bytes32 evidenceBefore) = baseModule.evaluate(wallet);
+
+        bytes32 summaryHash = _hashActivitySummary(summary);
+        bytes32 leafHash = _hashActivityLeaf(wallet, 1, uint64(block.number), summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE)
+        );
+        vm.prank(keeper);
+        baseModule.acceptActivityCommitment(wallet, new bytes32[](0));
+
+        (int256 scoreAfter, uint256 confidenceAfter, bytes32 evidenceAfter) = baseModule.evaluate(wallet);
+        assertEq(scoreAfter, scoreBefore);
+        assertEq(confidenceAfter, confidenceBefore);
+        assertEq(evidenceAfter, evidenceBefore);
     }
 }

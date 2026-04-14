@@ -4,11 +4,18 @@ pragma solidity ^0.8.20;
 import "../interfaces/IScoreModule.sol";
 import "../interfaces/IEvidenceCommitment.sol";
 import "../ScoreConstants.sol";
+import "../lib/EvidenceCommitmentLib.sol";
 import "../lib/EIP712Lib.sol";
 
 contract BaseActivityModule is IScoreModule {
     error UnauthorizedKeeper(address caller);
     error UnauthorizedGovernance(address caller);
+    error CommitmentNotFound(address wallet);
+    error SummaryNotFound(address wallet);
+    error InvalidProofType(uint8 proofType);
+    error SummaryHashMismatch(bytes32 expected, bytes32 actual);
+    error LeafHashMismatch(bytes32 expected, bytes32 actual);
+    error CommitmentProofInvalid();
 
     mapping(address => bool) public keepers;
     address public governance;
@@ -26,6 +33,7 @@ contract BaseActivityModule is IScoreModule {
 
     mapping(address => ActivitySummary) public latestActivitySummary;
     mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestActivityCommitment;
+    mapping(address => IEvidenceCommitment.EvidenceCommitmentAcceptance) private acceptedActivityCommitment;
 
     event ActivitySummarySubmitted(
         address indexed wallet,
@@ -42,6 +50,16 @@ contract BaseActivityModule is IScoreModule {
         uint64 epoch,
         uint64 blockNumber,
         uint8 proofType
+    );
+    event ActivityCommitmentAccepted(
+        address indexed wallet,
+        bytes32 root,
+        bytes32 leafHash,
+        bytes32 summaryHash,
+        uint64 epoch,
+        uint64 blockNumber,
+        uint8 proofType,
+        uint64 verifiedAt
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -155,6 +173,79 @@ contract BaseActivityModule is IScoreModule {
         returns (IEvidenceCommitment.EvidenceCommitment memory)
     {
         return latestActivityCommitment[wallet];
+    }
+
+    function acceptActivityCommitment(address wallet, bytes32[] calldata proof) external onlyKeeper whenNotPaused {
+        IEvidenceCommitment.EvidenceCommitment memory commitment = latestActivityCommitment[wallet];
+        if (commitment.summaryHash == bytes32(0)) revert CommitmentNotFound(wallet);
+
+        if (!EvidenceCommitmentLib.isValidProofType(commitment.proofType)) {
+            revert InvalidProofType(commitment.proofType);
+        }
+
+        ActivitySummary memory summary = latestActivitySummary[wallet];
+        if (summary.timestamp == 0) revert SummaryNotFound(wallet);
+
+        bytes32 expectedSummaryHash = _hashActivitySummary(summary);
+        if (expectedSummaryHash != commitment.summaryHash) {
+            revert SummaryHashMismatch(expectedSummaryHash, commitment.summaryHash);
+        }
+
+        bytes32 expectedLeafHash = EvidenceCommitmentLib.hashLeaf(
+            "activity", wallet, commitment.epoch, commitment.blockNumber, commitment.summaryHash
+        );
+        if (expectedLeafHash != commitment.leafHash) {
+            revert LeafHashMismatch(expectedLeafHash, commitment.leafHash);
+        }
+
+        if (!EvidenceCommitmentLib.verifyCommitment(commitment, proof)) {
+            revert CommitmentProofInvalid();
+        }
+
+        uint64 verifiedAt = uint64(block.timestamp);
+        acceptedActivityCommitment[wallet] = IEvidenceCommitment.EvidenceCommitmentAcceptance({
+            accepted: true,
+            root: commitment.root,
+            leafHash: commitment.leafHash,
+            summaryHash: commitment.summaryHash,
+            epoch: commitment.epoch,
+            blockNumber: commitment.blockNumber,
+            proofType: commitment.proofType,
+            verifiedAt: verifiedAt
+        });
+
+        emit ActivityCommitmentAccepted(
+            wallet,
+            commitment.root,
+            commitment.leafHash,
+            commitment.summaryHash,
+            commitment.epoch,
+            commitment.blockNumber,
+            commitment.proofType,
+            verifiedAt
+        );
+    }
+
+    function getAcceptedActivityCommitment(address wallet)
+        external
+        view
+        returns (IEvidenceCommitment.EvidenceCommitmentAcceptance memory)
+    {
+        return acceptedActivityCommitment[wallet];
+    }
+
+    function _hashActivitySummary(ActivitySummary memory summary) private pure returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                summary.txCount,
+                summary.firstTxTimestamp,
+                summary.lastTxTimestamp,
+                summary.uniqueCounterparties,
+                summary.timestamp,
+                summary.evidenceHash,
+                summary.sybilClusterFlag
+            )
+        );
     }
 
     function name() external pure override returns (string memory) {

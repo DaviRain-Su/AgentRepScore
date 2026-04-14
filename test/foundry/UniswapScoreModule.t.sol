@@ -64,7 +64,23 @@ contract UniswapScoreModuleTest is Test {
         uint256 timestamp,
         address pool
     ) internal {
-        UniswapScoreModule.SwapSummary memory summary = UniswapScoreModule.SwapSummary({
+        UniswapScoreModule.SwapSummary memory summary = _buildSwapSummary(
+            swapCount, volumeUSD, netPnL, slippage, washTrade, counterpartyConcentration, timestamp, pool
+        );
+        _submitSummary(summary);
+    }
+
+    function _buildSwapSummary(
+        uint256 swapCount,
+        uint256 volumeUSD,
+        int256 netPnL,
+        uint256 slippage,
+        bool washTrade,
+        bool counterpartyConcentration,
+        uint256 timestamp,
+        address pool
+    ) internal pure returns (UniswapScoreModule.SwapSummary memory) {
+        return UniswapScoreModule.SwapSummary({
             swapCount: swapCount,
             volumeUSD: volumeUSD,
             netPnL: netPnL,
@@ -76,6 +92,9 @@ contract UniswapScoreModuleTest is Test {
             evidenceHash: keccak256("evidence"),
             pool: pool
         });
+    }
+
+    function _submitSummary(UniswapScoreModule.SwapSummary memory summary) internal {
         bytes memory sig = _signSwapSummary(keeperPrivateKey, wallet, summary);
         uniModule.submitSwapSummary(wallet, summary, sig);
     }
@@ -101,6 +120,31 @@ contract UniswapScoreModuleTest is Test {
     function _submitCommitment(address wallet_, IEvidenceCommitment.EvidenceCommitment memory commitment) internal {
         vm.prank(keeper);
         uniModule.submitSwapCommitment(wallet_, commitment);
+    }
+
+    function _hashSwapSummary(UniswapScoreModule.SwapSummary memory summary) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                summary.swapCount,
+                summary.volumeUSD,
+                summary.netPnL,
+                summary.avgSlippageBps,
+                summary.feeToPnlRatioBps,
+                summary.washTradeFlag,
+                summary.counterpartyConcentrationFlag,
+                summary.timestamp,
+                summary.evidenceHash,
+                summary.pool
+            )
+        );
+    }
+
+    function _hashSwapLeaf(address wallet_, uint64 epoch, uint64 blockNumber, bytes32 summaryHash)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked("uniswap", wallet_, epoch, blockNumber, summaryHash));
     }
 
     function test_NoHistory() public view {
@@ -288,5 +332,112 @@ contract UniswapScoreModuleTest is Test {
         assertEq(confidenceAfter, confidenceBefore);
         assertEq(evidenceAfter, evidenceBefore);
         assertEq(stored.root, commitment.root);
+    }
+
+    function test_AcceptSwapCommitment_ValidProof() public {
+        UniswapScoreModule.SwapSummary memory summary =
+            _buildSwapSummary(20, 20_000e6, 2_000e6, 6, false, false, block.timestamp, address(0));
+        _submitSummary(summary);
+
+        bytes32 summaryHash = _hashSwapSummary(summary);
+        uint64 epoch = 1;
+        uint64 blockNumber = uint64(block.number);
+        bytes32 leafHash = _hashSwapLeaf(wallet, epoch, blockNumber, summaryHash);
+        IEvidenceCommitment.EvidenceCommitment memory commitment =
+            _buildCommitment(leafHash, leafHash, summaryHash, epoch, blockNumber, EvidenceProofType.MERKLE);
+        _submitCommitment(wallet, commitment);
+
+        vm.prank(keeper);
+        uniModule.acceptSwapCommitment(wallet, new bytes32[](0));
+
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted = uniModule.getAcceptedSwapCommitment(wallet);
+        assertTrue(accepted.accepted);
+        assertEq(accepted.root, leafHash);
+        assertEq(accepted.leafHash, leafHash);
+        assertEq(accepted.summaryHash, summaryHash);
+        assertEq(accepted.epoch, epoch);
+        assertEq(accepted.blockNumber, blockNumber);
+        assertEq(accepted.proofType, EvidenceProofType.MERKLE);
+        assertEq(accepted.verifiedAt, uint64(block.timestamp));
+    }
+
+    function test_AcceptSwapCommitment_InvalidProofReverts() public {
+        UniswapScoreModule.SwapSummary memory summary =
+            _buildSwapSummary(20, 20_000e6, 2_000e6, 6, false, false, block.timestamp, address(0));
+        _submitSummary(summary);
+
+        bytes32 summaryHash = _hashSwapSummary(summary);
+        uint64 epoch = 1;
+        uint64 blockNumber = uint64(block.number);
+        bytes32 leafHash = _hashSwapLeaf(wallet, epoch, blockNumber, summaryHash);
+        IEvidenceCommitment.EvidenceCommitment memory commitment = _buildCommitment(
+            keccak256("bad-root"), leafHash, summaryHash, epoch, blockNumber, EvidenceProofType.MERKLE
+        );
+        _submitCommitment(wallet, commitment);
+
+        vm.prank(keeper);
+        vm.expectRevert(UniswapScoreModule.CommitmentProofInvalid.selector);
+        uniModule.acceptSwapCommitment(wallet, new bytes32[](0));
+    }
+
+    function test_AcceptSwapCommitment_CanOverwriteAcceptance() public {
+        UniswapScoreModule.SwapSummary memory firstSummary =
+            _buildSwapSummary(20, 20_000e6, 2_000e6, 6, false, false, block.timestamp, address(0));
+        _submitSummary(firstSummary);
+
+        bytes32 firstSummaryHash = _hashSwapSummary(firstSummary);
+        bytes32 firstLeafHash = _hashSwapLeaf(wallet, 1, uint64(block.number), firstSummaryHash);
+        _submitCommitment(
+            wallet,
+            _buildCommitment(
+                firstLeafHash, firstLeafHash, firstSummaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE
+            )
+        );
+        vm.prank(keeper);
+        uniModule.acceptSwapCommitment(wallet, new bytes32[](0));
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory firstAccepted =
+            uniModule.getAcceptedSwapCommitment(wallet);
+
+        UniswapScoreModule.SwapSummary memory secondSummary =
+            _buildSwapSummary(30, 30_000e6, 3_000e6, 7, false, true, block.timestamp + 1, address(0));
+        _submitSummary(secondSummary);
+
+        bytes32 secondSummaryHash = _hashSwapSummary(secondSummary);
+        bytes32 secondLeafHash = _hashSwapLeaf(wallet, 2, uint64(block.number), secondSummaryHash);
+        _submitCommitment(
+            wallet,
+            _buildCommitment(
+                secondLeafHash, secondLeafHash, secondSummaryHash, 2, uint64(block.number), EvidenceProofType.MERKLE
+            )
+        );
+        vm.prank(keeper);
+        uniModule.acceptSwapCommitment(wallet, new bytes32[](0));
+
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory secondAccepted =
+            uniModule.getAcceptedSwapCommitment(wallet);
+        assertEq(secondAccepted.epoch, 2);
+        assertEq(secondAccepted.summaryHash, secondSummaryHash);
+        assertEq(secondAccepted.leafHash, secondLeafHash);
+        assertGe(secondAccepted.verifiedAt, firstAccepted.verifiedAt);
+    }
+
+    function test_AcceptSwapCommitment_DoesNotChangeEvaluatePath() public {
+        UniswapScoreModule.SwapSummary memory summary =
+            _buildSwapSummary(20, 20_000e6, 2_000e6, 6, false, false, block.timestamp, address(0));
+        _submitSummary(summary);
+        (int256 scoreBefore, uint256 confidenceBefore, bytes32 evidenceBefore) = uniModule.evaluate(wallet);
+
+        bytes32 summaryHash = _hashSwapSummary(summary);
+        bytes32 leafHash = _hashSwapLeaf(wallet, 1, uint64(block.number), summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE)
+        );
+        vm.prank(keeper);
+        uniModule.acceptSwapCommitment(wallet, new bytes32[](0));
+
+        (int256 scoreAfter, uint256 confidenceAfter, bytes32 evidenceAfter) = uniModule.evaluate(wallet);
+        assertEq(scoreAfter, scoreBefore);
+        assertEq(confidenceAfter, confidenceBefore);
+        assertEq(evidenceAfter, evidenceBefore);
     }
 }

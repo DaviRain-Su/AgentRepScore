@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "../interfaces/IScoreModule.sol";
 import "../interfaces/IEvidenceCommitment.sol";
 import "../ScoreConstants.sol";
+import "../lib/EvidenceCommitmentLib.sol";
 import "../lib/EIP712Lib.sol";
 
 interface IPool {
@@ -23,6 +24,12 @@ interface IPool {
 contract AaveScoreModule is IScoreModule {
     error UnauthorizedGovernance(address caller);
     error UnauthorizedKeeper(address caller);
+    error CommitmentNotFound(address wallet);
+    error SummaryNotFound(address wallet);
+    error InvalidProofType(uint8 proofType);
+    error SummaryHashMismatch(bytes32 expected, bytes32 actual);
+    error LeafHashMismatch(bytes32 expected, bytes32 actual);
+    error CommitmentProofInvalid();
 
     IPool public immutable aavePool;
 
@@ -38,6 +45,7 @@ contract AaveScoreModule is IScoreModule {
 
     mapping(address => WalletMeta) public walletMeta;
     mapping(address => IEvidenceCommitment.EvidenceCommitment) private latestWalletMetaCommitment;
+    mapping(address => IEvidenceCommitment.EvidenceCommitmentAcceptance) private acceptedWalletMetaCommitment;
 
     event LiquidationCountUpdated(
         address indexed wallet, uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp
@@ -50,6 +58,16 @@ contract AaveScoreModule is IScoreModule {
         uint64 epoch,
         uint64 blockNumber,
         uint8 proofType
+    );
+    event WalletMetaCommitmentAccepted(
+        address indexed wallet,
+        bytes32 root,
+        bytes32 leafHash,
+        bytes32 summaryHash,
+        uint64 epoch,
+        uint64 blockNumber,
+        uint8 proofType,
+        uint64 verifiedAt
     );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
@@ -156,6 +174,69 @@ contract AaveScoreModule is IScoreModule {
         returns (IEvidenceCommitment.EvidenceCommitment memory)
     {
         return latestWalletMetaCommitment[wallet];
+    }
+
+    function acceptWalletMetaCommitment(address wallet, bytes32[] calldata proof) external onlyKeeper whenNotPaused {
+        IEvidenceCommitment.EvidenceCommitment memory commitment = latestWalletMetaCommitment[wallet];
+        if (commitment.summaryHash == bytes32(0)) revert CommitmentNotFound(wallet);
+
+        if (!EvidenceCommitmentLib.isValidProofType(commitment.proofType)) {
+            revert InvalidProofType(commitment.proofType);
+        }
+
+        WalletMeta memory summary = walletMeta[wallet];
+        if (summary.timestamp == 0) revert SummaryNotFound(wallet);
+
+        bytes32 expectedSummaryHash = _hashWalletMeta(summary);
+        if (expectedSummaryHash != commitment.summaryHash) {
+            revert SummaryHashMismatch(expectedSummaryHash, commitment.summaryHash);
+        }
+
+        bytes32 expectedLeafHash = EvidenceCommitmentLib.hashLeaf(
+            "aave", wallet, commitment.epoch, commitment.blockNumber, commitment.summaryHash
+        );
+        if (expectedLeafHash != commitment.leafHash) {
+            revert LeafHashMismatch(expectedLeafHash, commitment.leafHash);
+        }
+
+        if (!EvidenceCommitmentLib.verifyCommitment(commitment, proof)) {
+            revert CommitmentProofInvalid();
+        }
+
+        uint64 verifiedAt = uint64(block.timestamp);
+        acceptedWalletMetaCommitment[wallet] = IEvidenceCommitment.EvidenceCommitmentAcceptance({
+            accepted: true,
+            root: commitment.root,
+            leafHash: commitment.leafHash,
+            summaryHash: commitment.summaryHash,
+            epoch: commitment.epoch,
+            blockNumber: commitment.blockNumber,
+            proofType: commitment.proofType,
+            verifiedAt: verifiedAt
+        });
+
+        emit WalletMetaCommitmentAccepted(
+            wallet,
+            commitment.root,
+            commitment.leafHash,
+            commitment.summaryHash,
+            commitment.epoch,
+            commitment.blockNumber,
+            commitment.proofType,
+            verifiedAt
+        );
+    }
+
+    function getAcceptedWalletMetaCommitment(address wallet)
+        external
+        view
+        returns (IEvidenceCommitment.EvidenceCommitmentAcceptance memory)
+    {
+        return acceptedWalletMetaCommitment[wallet];
+    }
+
+    function _hashWalletMeta(WalletMeta memory summary) private pure returns (bytes32) {
+        return keccak256(abi.encodePacked(summary.liquidationCount, summary.suppliedAssetCount, summary.timestamp));
     }
 
     function name() external pure override returns (string memory) {

@@ -54,6 +54,11 @@ contract AaveScoreModuleTest is Test {
         mockPool.setUserAccountData(wallet, collateral, debt, 0, 0, 0, healthFactor);
     }
 
+    function _submitWalletMeta(uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp) internal {
+        bytes memory sig = _signWalletMeta(keeperPrivateKey, wallet, liquidationCount, suppliedAssetCount, timestamp);
+        aaveModule.submitWalletMeta(wallet, liquidationCount, suppliedAssetCount, timestamp, sig);
+    }
+
     function _buildCommitment(
         bytes32 root,
         bytes32 leafHash,
@@ -75,6 +80,22 @@ contract AaveScoreModuleTest is Test {
     function _submitCommitment(address wallet_, IEvidenceCommitment.EvidenceCommitment memory commitment) internal {
         vm.prank(keeper);
         aaveModule.submitWalletMetaCommitment(wallet_, commitment);
+    }
+
+    function _hashWalletMetaSummary(uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(liquidationCount, suppliedAssetCount, timestamp));
+    }
+
+    function _hashWalletMetaLeaf(address wallet_, uint64 epoch, uint64 blockNumber, bytes32 summaryHash)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked("aave", wallet_, epoch, blockNumber, summaryHash));
     }
 
     function test_NoActivity() public {
@@ -140,8 +161,7 @@ contract AaveScoreModuleTest is Test {
 
     function test_LiquidationCountPenalty() public {
         _setData(1000e8, 500e8, 2e18);
-        bytes memory sig = _signWalletMeta(keeperPrivateKey, wallet, 2, 1, block.timestamp);
-        aaveModule.submitWalletMeta(wallet, 2, 1, block.timestamp, sig); // 2 liquidations, 1 asset
+        _submitWalletMeta(2, 1, block.timestamp); // 2 liquidations, 1 asset
         (int256 score,,) = aaveModule.evaluate(wallet);
         // 5000 + 2500 + 1000 - (2 * 1500) = 5500
         assertEq(score, ScoreConstants.BASE_AAVE_SCORE + 2500 + 1000 - 3000);
@@ -149,8 +169,7 @@ contract AaveScoreModuleTest is Test {
 
     function test_AssetCountBonus() public {
         _setData(1000e8, 500e8, 2e18);
-        bytes memory sig = _signWalletMeta(keeperPrivateKey, wallet, 0, 3, block.timestamp);
-        aaveModule.submitWalletMeta(wallet, 0, 3, block.timestamp, sig); // 0 liquidations, 3 assets
+        _submitWalletMeta(0, 3, block.timestamp); // 0 liquidations, 3 assets
         (int256 score,,) = aaveModule.evaluate(wallet);
         // 5000 + 2500 + 1000 + 1000 = 9500
         assertEq(score, ScoreConstants.BASE_AAVE_SCORE + 2500 + 1000 + 1000);
@@ -219,8 +238,7 @@ contract AaveScoreModuleTest is Test {
 
     function test_WalletMetaAndCommitmentCoexistWithoutChangingEvaluate() public {
         _setData(1000e8, 500e8, 2e18);
-        bytes memory sig = _signWalletMeta(keeperPrivateKey, wallet, 2, 3, block.timestamp);
-        aaveModule.submitWalletMeta(wallet, 2, 3, block.timestamp, sig);
+        _submitWalletMeta(2, 3, block.timestamp);
         (int256 scoreBefore, uint256 confidenceBefore, bytes32 evidenceBefore) = aaveModule.evaluate(wallet);
 
         IEvidenceCommitment.EvidenceCommitment memory commitment =
@@ -234,5 +252,98 @@ contract AaveScoreModuleTest is Test {
         assertEq(confidenceAfter, confidenceBefore);
         assertEq(evidenceAfter, evidenceBefore);
         assertEq(stored.root, commitment.root);
+    }
+
+    function test_AcceptWalletMetaCommitment_ValidProof() public {
+        _submitWalletMeta(2, 3, block.timestamp);
+
+        uint64 epoch = 1;
+        uint64 blockNumber = uint64(block.number);
+        bytes32 summaryHash = _hashWalletMetaSummary(2, 3, block.timestamp);
+        bytes32 leafHash = _hashWalletMetaLeaf(wallet, epoch, blockNumber, summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, epoch, blockNumber, EvidenceProofType.MERKLE)
+        );
+
+        vm.prank(keeper);
+        aaveModule.acceptWalletMetaCommitment(wallet, new bytes32[](0));
+
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory accepted =
+            aaveModule.getAcceptedWalletMetaCommitment(wallet);
+        assertTrue(accepted.accepted);
+        assertEq(accepted.root, leafHash);
+        assertEq(accepted.leafHash, leafHash);
+        assertEq(accepted.summaryHash, summaryHash);
+        assertEq(accepted.epoch, epoch);
+        assertEq(accepted.blockNumber, blockNumber);
+        assertEq(accepted.proofType, EvidenceProofType.MERKLE);
+        assertEq(accepted.verifiedAt, uint64(block.timestamp));
+    }
+
+    function test_AcceptWalletMetaCommitment_InvalidProofTypeReverts() public {
+        _submitWalletMeta(2, 3, block.timestamp);
+
+        bytes32 summaryHash = _hashWalletMetaSummary(2, 3, block.timestamp);
+        bytes32 leafHash = _hashWalletMetaLeaf(wallet, 1, uint64(block.number), summaryHash);
+        _submitCommitment(wallet, _buildCommitment(leafHash, leafHash, summaryHash, 1, uint64(block.number), 99));
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(AaveScoreModule.InvalidProofType.selector, uint8(99)));
+        aaveModule.acceptWalletMetaCommitment(wallet, new bytes32[](0));
+    }
+
+    function test_AcceptWalletMetaCommitment_CanOverwriteAcceptance() public {
+        _submitWalletMeta(2, 3, block.timestamp);
+
+        bytes32 firstSummaryHash = _hashWalletMetaSummary(2, 3, block.timestamp);
+        bytes32 firstLeafHash = _hashWalletMetaLeaf(wallet, 1, uint64(block.number), firstSummaryHash);
+        _submitCommitment(
+            wallet,
+            _buildCommitment(
+                firstLeafHash, firstLeafHash, firstSummaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE
+            )
+        );
+        vm.prank(keeper);
+        aaveModule.acceptWalletMetaCommitment(wallet, new bytes32[](0));
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory firstAccepted =
+            aaveModule.getAcceptedWalletMetaCommitment(wallet);
+
+        _submitWalletMeta(1, 4, block.timestamp + 1);
+        bytes32 secondSummaryHash = _hashWalletMetaSummary(1, 4, block.timestamp + 1);
+        bytes32 secondLeafHash = _hashWalletMetaLeaf(wallet, 2, uint64(block.number), secondSummaryHash);
+        _submitCommitment(
+            wallet,
+            _buildCommitment(
+                secondLeafHash, secondLeafHash, secondSummaryHash, 2, uint64(block.number), EvidenceProofType.MERKLE
+            )
+        );
+        vm.prank(keeper);
+        aaveModule.acceptWalletMetaCommitment(wallet, new bytes32[](0));
+
+        IEvidenceCommitment.EvidenceCommitmentAcceptance memory secondAccepted =
+            aaveModule.getAcceptedWalletMetaCommitment(wallet);
+        assertEq(secondAccepted.epoch, 2);
+        assertEq(secondAccepted.summaryHash, secondSummaryHash);
+        assertEq(secondAccepted.leafHash, secondLeafHash);
+        assertGe(secondAccepted.verifiedAt, firstAccepted.verifiedAt);
+    }
+
+    function test_AcceptWalletMetaCommitment_DoesNotChangeEvaluatePath() public {
+        _setData(1000e8, 500e8, 2e18);
+        _submitWalletMeta(2, 3, block.timestamp);
+        (int256 scoreBefore, uint256 confidenceBefore, bytes32 evidenceBefore) = aaveModule.evaluate(wallet);
+
+        bytes32 summaryHash = _hashWalletMetaSummary(2, 3, block.timestamp);
+        bytes32 leafHash = _hashWalletMetaLeaf(wallet, 1, uint64(block.number), summaryHash);
+        _submitCommitment(
+            wallet, _buildCommitment(leafHash, leafHash, summaryHash, 1, uint64(block.number), EvidenceProofType.MERKLE)
+        );
+        vm.prank(keeper);
+        aaveModule.acceptWalletMetaCommitment(wallet, new bytes32[](0));
+
+        (int256 scoreAfter, uint256 confidenceAfter, bytes32 evidenceAfter) = aaveModule.evaluate(wallet);
+        assertEq(scoreAfter, scoreBefore);
+        assertEq(confidenceAfter, confidenceBefore);
+        assertEq(evidenceAfter, evidenceBefore);
     }
 }

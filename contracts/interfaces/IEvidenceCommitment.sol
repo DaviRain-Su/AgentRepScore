@@ -10,6 +10,17 @@ interface IEvidenceCommitment {
         uint64 blockNumber;
         uint8 proofType;
     }
+
+    struct EvidenceCommitmentAcceptance {
+        bool accepted;
+        bytes32 root;
+        bytes32 leafHash;
+        bytes32 summaryHash;
+        uint64 epoch;
+        uint64 blockNumber;
+        uint8 proofType;
+        uint64 verifiedAt;
+    }
 }
 
 interface IEvidenceCommitmentView is IEvidenceCommitment {
