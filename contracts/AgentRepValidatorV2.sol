@@ -40,6 +40,13 @@ interface IBaseActivityCorrelationView {
         );
 }
 
+interface IAaveCorrelationView {
+    function walletMeta(address wallet)
+        external
+        view
+        returns (uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp);
+}
+
 contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     // ERC-8004 registries (set once in initialize, not immutable for proxy compat)
     address public identityRegistry;
@@ -173,6 +180,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     struct CorrelationSignalContext {
         bool hasUniswap;
         bool hasActivity;
+        bool hasAave;
         bool washTradeFlag;
         bool counterpartyConcentrationFlag;
         bool sybilClusterFlag;
@@ -180,8 +188,11 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         uint256 volumeUSD;
         uint256 uniqueCounterparties;
         uint256 walletAgeDays;
+        uint256 aaveLiquidationCount;
+        uint256 aaveSuppliedAssetCount;
         bytes32 uniswapEvidenceHash;
         bytes32 activityEvidenceHash;
+        bytes32 aaveEvidenceHash;
     }
 
     mapping(uint256 => uint256) public consecutiveZeroConfidence;
@@ -194,6 +205,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
 
     bytes32 private constant _UNISWAP_MODULE_HASH = keccak256("UniswapScoreModule");
     bytes32 private constant _BASE_ACTIVITY_MODULE_HASH = keccak256("BaseActivityModule");
+    bytes32 private constant _AAVE_MODULE_HASH = keccak256("AaveScoreModule");
 
     // Custom errors
     error CooldownNotElapsed(uint256 remaining);
@@ -633,6 +645,9 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
                 } else if (moduleNameHash == _BASE_ACTIVITY_MODULE_HASH) {
                     correlationSignals =
                         _loadBaseActivityCorrelationSignals(correlationSignals, address(modules[i].module), wallet);
+                } else if (moduleNameHash == _AAVE_MODULE_HASH) {
+                    correlationSignals =
+                        _loadAaveCorrelationSignals(correlationSignals, address(modules[i].module), wallet, evidence);
                 }
             }
 
@@ -860,6 +875,29 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
             signals.walletAgeDays = (block.timestamp - firstTxTimestamp) / 1 days;
         }
         return signals;
+    }
+
+    function _loadAaveCorrelationSignals(
+        CorrelationSignalContext memory signals,
+        address module,
+        address wallet,
+        bytes32 evidence
+    ) internal view returns (CorrelationSignalContext memory) {
+        try IAaveCorrelationView(module).walletMeta(wallet) returns (
+            uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp
+        ) {
+            if (timestamp == 0 || block.timestamp > timestamp + ScoreConstants.DATA_STALE_WINDOW) {
+                return signals;
+            }
+
+            signals.hasAave = true;
+            signals.aaveLiquidationCount = liquidationCount;
+            signals.aaveSuppliedAssetCount = suppliedAssetCount;
+            signals.aaveEvidenceHash = evidence;
+            return signals;
+        } catch {
+            return signals;
+        }
     }
 
     function _computeCorrelationPenalty(

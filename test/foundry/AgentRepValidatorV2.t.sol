@@ -107,6 +107,46 @@ contract MockCorrelationBaseActivityModule is IScoreModule {
     }
 }
 
+contract MockCorrelationAaveModule is IScoreModule {
+    struct WalletMeta {
+        uint256 liquidationCount;
+        uint256 suppliedAssetCount;
+        uint256 timestamp;
+    }
+
+    mapping(address => WalletMeta) public walletMeta;
+
+    int256 private _score = 7000;
+    uint256 private _confidence = 100;
+    bytes32 private _evidence = bytes32(uint256(0xa11ce));
+
+    function setWalletMeta(address wallet, WalletMeta calldata meta) external {
+        walletMeta[wallet] = meta;
+    }
+
+    function setResult(int256 score_, uint256 confidence_, bytes32 evidence_) external {
+        _score = score_;
+        _confidence = confidence_;
+        _evidence = evidence_;
+    }
+
+    function name() external pure override returns (string memory) {
+        return "AaveScoreModule";
+    }
+
+    function category() external pure override returns (string memory) {
+        return "lending";
+    }
+
+    function metricNames() external pure override returns (string[] memory metrics) {
+        metrics = new string[](0);
+    }
+
+    function evaluate(address) external view override returns (int256 score, uint256 confidence, bytes32 evidence) {
+        return (_score, _confidence, _evidence);
+    }
+}
+
 contract AgentRepValidatorV2Test is Test {
     AgentRepValidatorV2 public implementation;
     AgentRepValidatorV2 public validator;
@@ -302,6 +342,34 @@ contract AgentRepValidatorV2Test is Test {
         uint256[] memory weights = new uint256[](2);
         weights[0] = 5000;
         weights[1] = 5000;
+
+        validator.bootstrapModules(mods, weights);
+        identity.register("https://example.com");
+        identity.setAgentWallet(0, user);
+        validator.setCooldown(0);
+        vm.warp(block.timestamp + 1 days + 1);
+    }
+
+    function _setupCorrelationModulesWithAave()
+        internal
+        returns (
+            MockCorrelationUniswapModule uniswapModule,
+            MockCorrelationBaseActivityModule activityModule,
+            MockCorrelationAaveModule aaveModule
+        )
+    {
+        uniswapModule = new MockCorrelationUniswapModule();
+        activityModule = new MockCorrelationBaseActivityModule();
+        aaveModule = new MockCorrelationAaveModule();
+
+        IScoreModule[] memory mods = new IScoreModule[](3);
+        mods[0] = uniswapModule;
+        mods[1] = activityModule;
+        mods[2] = aaveModule;
+        uint256[] memory weights = new uint256[](3);
+        weights[0] = 4000;
+        weights[1] = 4000;
+        weights[2] = 2000;
 
         validator.bootstrapModules(mods, weights);
         identity.register("https://example.com");
@@ -541,6 +609,104 @@ contract AgentRepValidatorV2Test is Test {
 
         (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
         assertEq(penalty, 1600);
+        assertEq(ruleCount, 1);
+    }
+
+    function test_CorrelationPenalty_AaveHookWithMeta_DoesNotChangeCurrentRules() public {
+        (
+            MockCorrelationUniswapModule uniswapModule,
+            MockCorrelationBaseActivityModule activityModule,
+            MockCorrelationAaveModule aaveModule
+        ) = _setupCorrelationModulesWithAave();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 80,
+                volumeUSD: 10_000e6,
+                netPnL: 0,
+                avgSlippageBps: 25,
+                feeToPnlRatioBps: 300,
+                washTradeFlag: true,
+                counterpartyConcentrationFlag: false,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x111100)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 400,
+                firstTxTimestamp: block.timestamp - 180 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 20,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x222200)),
+                sybilClusterFlag: true
+            })
+        );
+
+        aaveModule.setWalletMeta(
+            user,
+            MockCorrelationAaveModule.WalletMeta({
+                liquidationCount: 2, suppliedAssetCount: 3, timestamp: block.timestamp
+            })
+        );
+        aaveModule.setResult(7000, 100, bytes32(uint256(0x333300)));
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 4500);
+
+        (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 2500);
+        assertEq(ruleCount, 1);
+    }
+
+    function test_CorrelationPenalty_AaveHookWithEmptyMeta_DoesNotChangeCurrentRules() public {
+        (
+            MockCorrelationUniswapModule uniswapModule,
+            MockCorrelationBaseActivityModule activityModule,
+            MockCorrelationAaveModule aaveModule
+        ) = _setupCorrelationModulesWithAave();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 80,
+                volumeUSD: 10_000e6,
+                netPnL: 0,
+                avgSlippageBps: 25,
+                feeToPnlRatioBps: 300,
+                washTradeFlag: true,
+                counterpartyConcentrationFlag: false,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x111101)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 400,
+                firstTxTimestamp: block.timestamp - 180 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 20,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x222201)),
+                sybilClusterFlag: true
+            })
+        );
+
+        aaveModule.setResult(7000, 100, bytes32(uint256(0x333301)));
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 4500);
+
+        (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 2500);
         assertEq(ruleCount, 1);
     }
 
