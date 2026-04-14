@@ -2,7 +2,6 @@ import {
   createPublicClient,
   createWalletClient,
   http,
-  decodeEventLog,
   keccak256,
   toBytes,
   type Address,
@@ -271,7 +270,7 @@ async function main() {
     abi: v2Abi,
     functionName: "getLatestScore",
     args: [agentId],
-  });
+  }) as readonly [bigint, bigint, `0x${string}`];
   console.log("Latest score:", latest[0].toString());
 
   const modScores = await publicClient.readContract({
@@ -279,7 +278,7 @@ async function main() {
     abi: v2Abi,
     functionName: "getModuleScores",
     args: [agentId],
-  });
+  }) as readonly [readonly string[], readonly bigint[], readonly bigint[], readonly `0x${string}`[]];
   for (let i = 0; i < modScores[0].length; i++) {
     console.log(`  ${modScores[0][i]}: score=${modScores[1][i]}, conf=${modScores[2][i]}`);
   }

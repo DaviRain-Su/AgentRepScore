@@ -32,9 +32,10 @@ async function main() {
 
   const { abi, bytecode } = loadFoundryArtifact("MockSwapPool", "MockSwapPool.sol");
   const factory = new ContractFactory(abi, bytecode, wallet);
-  const pool = await factory.deploy();
-  await pool.waitForDeployment();
-  const poolAddress = await pool.getAddress();
+  const deployedPool = await factory.deploy();
+  await deployedPool.waitForDeployment();
+  const poolAddress = await deployedPool.getAddress();
+  const pool = new Contract(poolAddress, abi, wallet);
   console.log("MockSwapPool deployed to:", poolAddress);
 
   // Emit a few swap events for the deployer wallet
@@ -46,7 +47,7 @@ async function main() {
 
   for (let i = 0; i < swaps.length; i++) {
     const s = swaps[i];
-    const tx = await pool.emitSwap(deployer, deployer, s.amount0, s.amount1, s.sqrtPriceX96, 1000000n, 0);
+    const tx = await pool.getFunction("emitSwap")(deployer, deployer, s.amount0, s.amount1, s.sqrtPriceX96, 1000000n, 0);
     await tx.wait();
     console.log(`Swap ${i + 1} emitted: tx=${tx.hash}`);
     if (i < swaps.length - 1) await new Promise((r) => setTimeout(r, 3000));

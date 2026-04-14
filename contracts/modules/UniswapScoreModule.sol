@@ -123,7 +123,10 @@ contract UniswapScoreModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitSwapSummary(address wallet, SwapSummary calldata summary, bytes calldata signature) external whenNotPaused {
+    function submitSwapSummary(address wallet, SwapSummary calldata summary, bytes calldata signature)
+        external
+        whenNotPaused
+    {
         bytes32 structHash = keccak256(
             abi.encode(
                 SWAP_SUMMARY_TYPEHASH,

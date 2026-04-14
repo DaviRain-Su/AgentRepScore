@@ -39,11 +39,18 @@ vi.mock("../../src/skill/keepers/runner", () => ({
 
 import { program } from "../../src/cli.ts";
 
+function configureCommandTreeForTest(command: any) {
+  command.exitOverride();
+  command.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+  for (const subcommand of command.commands ?? []) {
+    configureCommandTreeForTest(subcommand);
+  }
+}
+
 describe("CLI", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    program.exitOverride();
-    program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+    configureCommandTreeForTest(program);
   });
 
   it("register calls skill register with wallet and uri", async () => {

@@ -26,8 +26,7 @@ contract AgentRepValidatorV2Test is Test {
         implementation = new AgentRepValidatorV2();
 
         bytes memory initData = abi.encodeCall(
-            AgentRepValidatorV2.initialize,
-            (address(identity), address(reputation), address(0), governance)
+            AgentRepValidatorV2.initialize, (address(identity), address(reputation), address(0), governance)
         );
 
         ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
@@ -164,7 +163,7 @@ contract AgentRepValidatorV2Test is Test {
         }
 
         // Module should be auto-deactivated
-        (,,bool active) = validator.modules(0);
+        (,, bool active) = validator.modules(0);
         assertFalse(active);
         assertEq(validator.consecutiveZeroConfidence(0), 3);
     }
@@ -189,7 +188,7 @@ contract AgentRepValidatorV2Test is Test {
 
         // Counter resets
         assertEq(validator.consecutiveZeroConfidence(0), 0);
-        (,,bool active) = validator.modules(0);
+        (,, bool active) = validator.modules(0);
         assertTrue(active);
     }
 
@@ -204,12 +203,12 @@ contract AgentRepValidatorV2Test is Test {
             validator.evaluateAgent(0);
         }
 
-        (,,bool active) = validator.modules(0);
+        (,, bool active) = validator.modules(0);
         assertFalse(active);
 
         // Governance re-activates
         validator.setModuleActive(0, true);
-        (,,active) = validator.modules(0);
+        (,, active) = validator.modules(0);
         assertTrue(active);
         assertEq(validator.consecutiveZeroConfidence(0), 0);
     }
@@ -226,7 +225,7 @@ contract AgentRepValidatorV2Test is Test {
         }
 
         // Module stays active despite 10 zero-confidence rounds
-        (,,bool active) = validator.modules(0);
+        (,, bool active) = validator.modules(0);
         assertTrue(active);
     }
 

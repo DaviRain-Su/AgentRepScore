@@ -38,7 +38,7 @@ contract MockMultisig {
         bytes32 txHash = keccak256(abi.encode(target, data));
         uint256 current = approvals[txHash];
         if (current < THRESHOLD) revert InsufficientApprovals(txHash, current, THRESHOLD);
-        (bool success, ) = target.call(data);
+        (bool success,) = target.call(data);
         if (!success) revert ExecutionFailed(txHash);
         emit Executed(txHash, target);
     }

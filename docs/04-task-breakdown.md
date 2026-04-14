@@ -98,7 +98,7 @@
 
 | # | 任务 | 状态 | 说明 | 预估工作量 |
 |---|------|------|------|------------|
-| P2-01 | 引入 UUPS Proxy 可升级架构 | 🔴 未开始 | 当前合约不可升级，任何逻辑 bug 都需要重新部署并迁移模块注册。使用 OpenZeppelin UUPS 可降低长期运维成本 | 1-2 天 |
+| P2-01 | 引入 UUPS Proxy 可升级架构 | 🟢 已完成 | `AgentRepValidatorV2` + `ERC1967Proxy` 已实现可升级部署路径；Foundry 测试覆盖初始化、状态保留、仅治理可升级、实现合约禁止重复初始化等关键场景 | 1-2 天 |
 | P2-02 | 将 `AgentScore` 模块化存储改为 Merkle 化/压缩存储 | 🔴 未开始 | 降低链上存储成本，支持更多历史记录 | 2-3 天 |
 | P2-03 | 实现链上历史证据 Merkle 验证 | 🟡 部分 | 技术规格中写了方案 A，实际 MVP 用了 keeper 摘要模式。如果要真正去信任，需要实现 receipt/log Merkle 证明验证 | 3-5 天 |
 
@@ -108,7 +108,7 @@
 |---|------|------|------|------------|
 | P2-04 | 引入动态权重调整（基于治理投票或链上指标） | 🔴 未开始 | 例如某模块长期 confidence 为 0，可自动降低其权重 | 2-3 天 |
 | P2-05 | 增加跨模块关联行为分析 | 🔴 未开始 | 检测同一钱包在 Uniswap 和 Aave 上的协同操纵（如闪电贷 + 自交易） | 2-3 天 |
-| P2-06 | 增加评分模型的链下仿真沙盒 | 🔴 未开始 | 在真正写入 Reputation Registry 前，允许运营方在链下模拟不同权重配置的效果 | 2 天 |
+| P2-06 | 增加评分模型的链下仿真沙盒 | 🟢 已完成 | `src/skill/commands/simulate.ts` + CLI `/simulate` + HTTP `POST /simulate` 已实现，可基于链上 agent 分数或自定义模块输入进行离线权重仿真 | 2 天 |
 | P2-07 | Skill 层 N+1 RPC 优化 + DRY 重构 | 🟢 已完成 | `evaluate.ts` 与 `query.ts` 中通过循环读取 `modules(i)` 和 `module.name()` 产生 N+1 次 RPC 调用；应引入 multicall 或增加 `getModulesWithNames()` view 函数以减少调用次数 | 1 天 |
 | P2-08 | 增加 `getModulesWithNames()` view 函数 | 🟢 已实现 | 在 `AgentRepValidator` 中增加一个函数，一次性返回所有模块的地址、权重、active 状态和名称，消除 Skill 层 N+1 查询 | 0.5 天 |
 
@@ -175,3 +175,4 @@
 | v2.0 | 2026-04-11 | 重写为 Production Roadmap，按 P0/P1/P2/P3 分级，覆盖差距分析中的所有任务 |
 | v2.1 | 2026-04-11 | 根据第二轮 Code Review 更新：标记 Pausable/Timelock/TS 编译一致性/deploy-mainnet 对齐/compare 测试/docs 更新为已完成；新增 P1-11 EIP-712 keeper 签名、P2-07 N+1 RPC 优化、P2-08 getModulesWithNames |
 | v2.2 | 2026-04-12 | 同步 US-001~US-009 完成状态：P0-01/02/03/09、P1-01/02/06/09/11 标记为已完成；更新总览完成度至 ~80% |
+| v2.3 | 2026-04-14 | 同步当前代码状态：P2-01 UUPS Proxy、P2-06 仿真沙盒标记为已完成；与 `AgentRepValidatorV2`、`simulate` CLI/API 实现保持一致 |

@@ -42,8 +42,7 @@ contract AaveScoreModuleTest is Test {
             )
         );
         bytes32 digest = EIP712Lib.toTypedDataHash(
-            EIP712Lib.domainSeparator("AaveScoreModule", "1", address(aaveModule)),
-            structHash
+            EIP712Lib.domainSeparator("AaveScoreModule", "1", address(aaveModule)), structHash
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         if (v < 27) v += 27;

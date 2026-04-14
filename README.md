@@ -71,9 +71,14 @@ forge test
 # Hardhat
 npx hardhat compile
 
-# Integration test (testnet)
+# Integration test (mainnet / fully functional ERC-8004 env)
 npx vitest run test/hardhat/integration.test.ts
+
+# Mock end-to-end flow on testnet
+npx tsx scripts/e2e-v2-mock-testnet-viem.ts
 ```
+
+> 注意：`test/hardhat/integration.test.ts` 在 `NETWORK=testnet` 时会跳过，因为当前 X Layer testnet 上的 ERC-8004 IdentityRegistry 行为与主网不完全一致（注册事件/`ownerOf` 行为不稳定）。测试网联调建议优先使用 mock E2E 脚本验证 `V2 proxy + modules + keeper signatures + evaluate` 全链路。
 
 ## Keeper 脚本
 

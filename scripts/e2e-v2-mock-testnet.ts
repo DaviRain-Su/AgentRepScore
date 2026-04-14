@@ -1,4 +1,4 @@
-import { JsonRpcProvider, Wallet, ContractFactory, Contract, Interface, NonceManager } from "ethers";
+import { JsonRpcProvider, Wallet, ContractFactory, Contract, Interface } from "ethers";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -37,8 +37,7 @@ async function main() {
   }
 
   const provider = new JsonRpcProvider(RPC_URL);
-  const baseWallet = new Wallet(PRIVATE_KEY, provider);
-  const wallet = new NonceManager(baseWallet);
+  const wallet = new Wallet(PRIVATE_KEY, provider);
   const deployer = wallet.address;
   console.log("Running V2 E2E with Mock Registries on X Layer Sepolia");
   console.log("Deployer:", deployer);

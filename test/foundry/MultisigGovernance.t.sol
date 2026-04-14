@@ -33,10 +33,7 @@ contract MultisigGovernanceTest is Test {
         multisig = new MockMultisig(owners);
 
         validator = new AgentRepValidator(
-            address(identityRegistry),
-            address(reputationRegistry),
-            address(0),
-            address(multisig)
+            address(identityRegistry), address(reputationRegistry), address(0), address(multisig)
         );
 
         modA = new MockScoreModule("ModA", "test", 8000, 100, bytes32(uint256(1)));

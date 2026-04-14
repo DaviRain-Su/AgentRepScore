@@ -439,11 +439,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     function getModuleHealth()
         external
         view
-        returns (
-            string[] memory names,
-            uint256[] memory zeroStreaks,
-            bool[] memory activeStates
-        )
+        returns (string[] memory names, uint256[] memory zeroStreaks, bool[] memory activeStates)
     {
         uint256 len = modules.length;
         names = new string[](len);

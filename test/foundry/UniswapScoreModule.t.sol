@@ -46,8 +46,7 @@ contract UniswapScoreModuleTest is Test {
             )
         );
         bytes32 digest = EIP712Lib.toTypedDataHash(
-            EIP712Lib.domainSeparator("UniswapScoreModule", "1", address(uniModule)),
-            structHash
+            EIP712Lib.domainSeparator("UniswapScoreModule", "1", address(uniModule)), structHash
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         if (v < 27) v += 27;

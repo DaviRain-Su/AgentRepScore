@@ -37,7 +37,9 @@ contract AaveScoreModule is IScoreModule {
 
     mapping(address => WalletMeta) public walletMeta;
 
-    event LiquidationCountUpdated(address indexed wallet, uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp);
+    event LiquidationCountUpdated(
+        address indexed wallet, uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp
+    );
     event GovernanceTransferInitiated(address indexed previousGovernance, address indexed pendingGovernance);
     event GovernanceTransferAccepted(address indexed newGovernance);
 
@@ -100,19 +102,15 @@ contract AaveScoreModule is IScoreModule {
         emit GovernanceTransferAccepted(governance);
     }
 
-    function submitWalletMeta(address wallet, uint256 liquidationCount, uint256 suppliedAssetCount, uint256 timestamp, bytes calldata signature)
-        external
-        whenNotPaused
-    {
+    function submitWalletMeta(
+        address wallet,
+        uint256 liquidationCount,
+        uint256 suppliedAssetCount,
+        uint256 timestamp,
+        bytes calldata signature
+    ) external whenNotPaused {
         bytes32 structHash = keccak256(
-            abi.encode(
-                WALLET_META_TYPEHASH,
-                wallet,
-                liquidationCount,
-                suppliedAssetCount,
-                timestamp,
-                nonces[wallet]++
-            )
+            abi.encode(WALLET_META_TYPEHASH, wallet, liquidationCount, suppliedAssetCount, timestamp, nonces[wallet]++)
         );
         bytes32 digest = EIP712Lib.toTypedDataHash(_domainSeparator, structHash);
         address signer = EIP712Lib.recoverSigner(digest, signature);
