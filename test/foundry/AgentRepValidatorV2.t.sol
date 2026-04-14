@@ -876,6 +876,173 @@ contract AgentRepValidatorV2Test is Test {
         assertEq(evidenceHash, bytes32(0));
     }
 
+    function test_CorrelationPenalty_MaxPenaltyCap_OnRuleOverlap() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        validator.setCorrelationPolicy(true, true, true, true, 50, 2, 100_000e6, 14, 3000, 2500, 2000, 4000);
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 120,
+                volumeUSD: 200_000e6,
+                netPnL: 0,
+                avgSlippageBps: 20,
+                feeToPnlRatioBps: 200,
+                washTradeFlag: true,
+                counterpartyConcentrationFlag: true,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0xaaaa)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 400,
+                firstTxTimestamp: block.timestamp - 5 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 1,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0xbbbb)),
+                sybilClusterFlag: true
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 3000);
+
+        (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 4000);
+        assertEq(ruleCount, 3);
+    }
+
+    function test_CorrelationPenalty_HighFrequencyHealthyAgent_NoPenalty() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 150,
+                volumeUSD: 180_000e6,
+                netPnL: 0,
+                avgSlippageBps: 10,
+                feeToPnlRatioBps: 100,
+                washTradeFlag: false,
+                counterpartyConcentrationFlag: false,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0xcccc)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 2000,
+                firstTxTimestamp: block.timestamp - 240 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 60,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0xdddd)),
+                sybilClusterFlag: false
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 7000);
+
+        (int256 penalty, bytes32 evidenceHash, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 0);
+        assertEq(ruleCount, 0);
+        assertEq(evidenceHash, bytes32(0));
+    }
+
+    function test_CorrelationPenalty_YoungWalletLowVolume_NoPenalty() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 90,
+                volumeUSD: 20_000e6,
+                netPnL: 0,
+                avgSlippageBps: 25,
+                feeToPnlRatioBps: 200,
+                washTradeFlag: false,
+                counterpartyConcentrationFlag: false,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0xeeee)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 300,
+                firstTxTimestamp: block.timestamp - 4 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 18,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0xffff)),
+                sybilClusterFlag: false
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 7000);
+
+        (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 0);
+        assertEq(ruleCount, 0);
+    }
+
+    function test_CorrelationPenalty_SingleWashFlag_NoPenalty() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 80,
+                volumeUSD: 10_000e6,
+                netPnL: 0,
+                avgSlippageBps: 15,
+                feeToPnlRatioBps: 120,
+                washTradeFlag: true,
+                counterpartyConcentrationFlag: false,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0xabc1)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 500,
+                firstTxTimestamp: block.timestamp - 120 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 25,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0xabc2)),
+                sybilClusterFlag: false
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 7000);
+
+        (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 0);
+        assertEq(ruleCount, 0);
+    }
+
     function test_GetModuleHealth() public {
         MockScoreModule mod = new MockScoreModule("Health", "test", 0, 0, bytes32(0));
         _setupModuleAndAgent(mod);
