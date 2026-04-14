@@ -152,6 +152,32 @@ contract AgentRepValidatorV2Test is Test {
         assertEq(recoveryStepBps, 250);
         assertEq(zeroConfidenceThreshold, 3);
         assertEq(validator.autoDeactivateThreshold(), 3);
+        (
+            bool correlationEnabled,
+            bool washSybilEnabled,
+            bool concentrationEnabled,
+            bool youngVolumeEnabled,
+            uint256 highSwapThreshold,
+            uint256 lowCounterpartiesThreshold,
+            uint256 highVolumeThreshold,
+            uint256 youngWalletDaysThreshold,
+            uint256 penaltyWashSybil,
+            uint256 penaltyConcentration,
+            uint256 penaltyYoungVolume,
+            uint256 maxPenalty
+        ) = validator.getCorrelationPolicy();
+        assertTrue(correlationEnabled);
+        assertTrue(washSybilEnabled);
+        assertTrue(concentrationEnabled);
+        assertTrue(youngVolumeEnabled);
+        assertEq(highSwapThreshold, 50);
+        assertEq(lowCounterpartiesThreshold, 2);
+        assertEq(highVolumeThreshold, 100_000e6);
+        assertEq(youngWalletDaysThreshold, 14);
+        assertEq(penaltyWashSybil, 2500);
+        assertEq(penaltyConcentration, 1200);
+        assertEq(penaltyYoungVolume, 1000);
+        assertEq(maxPenalty, 5000);
     }
 
     function test_Version() public view {
@@ -399,6 +425,123 @@ contract AgentRepValidatorV2Test is Test {
         (,,,, uint8 threshold) = validator.getWeightPolicy();
         assertEq(threshold, 9);
         assertEq(validator.autoDeactivateThreshold(), 9);
+    }
+
+    function test_SetCorrelationPolicy_OnlyGovernance() public {
+        vm.prank(user);
+        vm.expectRevert();
+        validator.setCorrelationPolicy(true, true, true, true, 50, 2, 100_000e6, 14, 2500, 1200, 1000, 5000);
+    }
+
+    function test_SetCorrelationPolicy_InvalidPenaltyConfigReverts() public {
+        vm.expectRevert(AgentRepValidatorV2.InvalidCorrelationPolicy.selector);
+        validator.setCorrelationPolicy(true, true, true, true, 50, 2, 100_000e6, 14, 2500, 1200, 1000, 900);
+    }
+
+    function test_CorrelationPolicy_DisabledSkipsPenalty() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        validator.setCorrelationPolicy(false, true, true, true, 50, 2, 100_000e6, 14, 2500, 1200, 1000, 5000);
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 100,
+                volumeUSD: 20_000e6,
+                netPnL: 0,
+                avgSlippageBps: 20,
+                feeToPnlRatioBps: 300,
+                washTradeFlag: true,
+                counterpartyConcentrationFlag: true,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x1212)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 500,
+                firstTxTimestamp: block.timestamp - 180 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 1,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x3434)),
+                sybilClusterFlag: true
+            })
+        );
+
+        (int256 score,) = validator.evaluateAgent(0);
+        assertEq(score, 7000);
+
+        (int256 penalty, bytes32 evidenceHash, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 0);
+        assertEq(ruleCount, 0);
+        assertEq(evidenceHash, bytes32(0));
+    }
+
+    function test_CorrelationPolicy_ThresholdAndPenaltyOverride() public {
+        (MockCorrelationUniswapModule uniswapModule, MockCorrelationBaseActivityModule activityModule) =
+            _setupCorrelationModules();
+
+        validator.setCorrelationPolicy(true, false, true, false, 80, 2, 100_000e6, 14, 2500, 1600, 1000, 5000);
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 70,
+                volumeUSD: 5_000e6,
+                netPnL: 0,
+                avgSlippageBps: 20,
+                feeToPnlRatioBps: 200,
+                washTradeFlag: false,
+                counterpartyConcentrationFlag: true,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x5656)),
+                pool: address(0)
+            })
+        );
+
+        activityModule.setSummary(
+            user,
+            MockCorrelationBaseActivityModule.ActivitySummary({
+                txCount: 300,
+                firstTxTimestamp: block.timestamp - 120 days,
+                lastTxTimestamp: block.timestamp,
+                uniqueCounterparties: 2,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x7878)),
+                sybilClusterFlag: false
+            })
+        );
+
+        (int256 scoreWithoutPenalty,) = validator.evaluateAgent(0);
+        assertEq(scoreWithoutPenalty, 7000);
+
+        uniswapModule.setSummary(
+            user,
+            MockCorrelationUniswapModule.SwapSummary({
+                swapCount: 90,
+                volumeUSD: 5_000e6,
+                netPnL: 0,
+                avgSlippageBps: 20,
+                feeToPnlRatioBps: 200,
+                washTradeFlag: false,
+                counterpartyConcentrationFlag: true,
+                timestamp: block.timestamp,
+                evidenceHash: bytes32(uint256(0x9999)),
+                pool: address(0)
+            })
+        );
+
+        (int256 scoreWithPenalty,) = validator.evaluateAgent(0);
+        assertEq(scoreWithPenalty, 5400);
+
+        (int256 penalty,, uint8 ruleCount,) = validator.getCorrelationAssessment(0);
+        assertEq(penalty, 1600);
+        assertEq(ruleCount, 1);
     }
 
     function test_CorrelationPenalty_WashTradeAndSybilResonance() public {

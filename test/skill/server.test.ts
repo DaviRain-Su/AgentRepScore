@@ -97,6 +97,7 @@ describe("HTTP API", () => {
       trustTier: "elite",
       timestamp: 1712822400,
       evidenceHash: "0xdeadbeef",
+      correlation: { penalty: 1200, ruleCount: 1, evidenceHash: "0xabc", timestamp: 1712822400 },
       moduleBreakdown: [
         { name: "UniswapScoreModule", score: 9000, confidence: 100, weight: 4000 },
       ],
@@ -105,6 +106,7 @@ describe("HTTP API", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.trustTier).toBe("elite");
+    expect(res.body.correlation.penalty).toBe(1200);
     expect(mockEvaluate).toHaveBeenCalledWith({ agentId: "42" });
   });
 
@@ -116,6 +118,7 @@ describe("HTTP API", () => {
       decayedScore: 4999,
       trustTier: "basic",
       timestamp: 1712822400,
+      correlation: { penalty: 0, ruleCount: 0, evidenceHash: "0x0", timestamp: 1712822400 },
       moduleBreakdown: [],
     });
     const res = await request(app).post("/query").send({ agentId: "7" });
@@ -127,13 +130,14 @@ describe("HTTP API", () => {
 
   it("POST /compare calls compare skill and returns sorted result", async () => {
     mockCompare.mockResolvedValueOnce([
-      { agentId: "2", decayedScore: 9000, trustTier: "elite" },
-      { agentId: "1", decayedScore: 5000, trustTier: "basic" },
+      { agentId: "2", decayedScore: 9000, trustTier: "elite", correlationPenalty: 0, correlationRuleCount: 0 },
+      { agentId: "1", decayedScore: 5000, trustTier: "basic", correlationPenalty: 800, correlationRuleCount: 1 },
     ]);
     const res = await request(app).post("/compare").send({ agentIds: ["1", "2"] });
 
     expect(res.status).toBe(200);
     expect(res.body[0].agentId).toBe("2");
+    expect(res.body[1].correlationPenalty).toBe(800);
     expect(mockCompare).toHaveBeenCalledWith({ agentIds: ["1", "2"] });
   });
 

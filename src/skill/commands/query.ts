@@ -23,7 +23,7 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
     args: [BigInt(input.agentId)],
   });
 
-  const [latest, modules, moduleConfigs, effectiveWeights] = await Promise.all([
+  const [latest, modules, moduleConfigs, effectiveWeights, correlationAssessment] = await Promise.all([
     publicClient.readContract({
       address: VALIDATOR_ADDRESS,
       abi: validatorAbi,
@@ -46,6 +46,12 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
       abi: validatorAbi,
       functionName: "getEffectiveWeights",
     }),
+    publicClient.readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getCorrelationAssessment",
+      args: [BigInt(input.agentId)],
+    }),
   ]);
 
   const [, moduleNames, , moduleWeights] = moduleConfigs;
@@ -64,6 +70,12 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
   const rawScore = Number(latest[0]);
   const timestamp = Number(latest[1]);
   const decayedScore = applyDecay(rawScore, timestamp);
+  const correlation = {
+    penalty: Number(correlationAssessment[0]),
+    evidenceHash: correlationAssessment[1],
+    ruleCount: Number(correlationAssessment[2]),
+    timestamp: Number(correlationAssessment[3]),
+  };
 
   const moduleBreakdown = modules[0].map((name, i) => {
     const confidence = Number(modules[2][i]);
@@ -86,6 +98,7 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
     decayedScore,
     trustTier: trustTier(decayedScore),
     timestamp,
+    correlation,
     moduleBreakdown,
   };
 }

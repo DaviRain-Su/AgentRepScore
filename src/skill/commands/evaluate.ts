@@ -59,7 +59,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     throw new Error("evaluateAgent transaction failed");
   }
 
-  const [latest, modules, moduleConfigs, effectiveWeights] = await Promise.all([
+  const [latest, modules, moduleConfigs, effectiveWeights, correlationAssessment] = await Promise.all([
     publicClient.readContract({
       address: VALIDATOR_ADDRESS,
       abi: validatorAbi,
@@ -82,6 +82,12 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
       abi: validatorAbi,
       functionName: "getEffectiveWeights",
     }),
+    publicClient.readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getCorrelationAssessment",
+      args: [BigInt(input.agentId)],
+    }),
   ]);
 
   const [, moduleNames, , moduleWeights] = moduleConfigs;
@@ -101,6 +107,12 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
   const timestamp = Number(latest[1]);
   const evidenceHash = latest[2];
   const decayedScore = applyDecay(rawScore, timestamp);
+  const correlation = {
+    penalty: Number(correlationAssessment[0]),
+    evidenceHash: correlationAssessment[1],
+    ruleCount: Number(correlationAssessment[2]),
+    timestamp: Number(correlationAssessment[3]),
+  };
 
   const moduleBreakdown = modules[0].map((name, i) => {
     const confidence = Number(modules[2][i]);
@@ -124,6 +136,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     trustTier: trustTier(decayedScore),
     timestamp,
     evidenceHash,
+    correlation,
     moduleBreakdown,
   };
 }

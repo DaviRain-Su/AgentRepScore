@@ -297,6 +297,9 @@
             "enum": ["untrusted", "basic", "verified", "elite"]
           },
           "timestamp": { "type": "integer" },
+          "correlation": {
+            "$ref": "#/components/schemas/CorrelationAssessment"
+          },
           "moduleBreakdown": {
             "type": "array",
             "items": {
@@ -336,7 +339,18 @@
             "type": "string",
             "enum": ["untrusted", "basic", "verified", "elite"]
           },
+          "correlationPenalty": { "type": "number" },
+          "correlationRuleCount": { "type": "number" },
           "error": { "type": "string" }
+        }
+      },
+      "CorrelationAssessment": {
+        "type": "object",
+        "properties": {
+          "penalty": { "type": "number" },
+          "ruleCount": { "type": "number" },
+          "evidenceHash": { "type": "string" },
+          "timestamp": { "type": "integer" }
         }
       },
       "ModulesOutput": {

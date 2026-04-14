@@ -88,6 +88,7 @@ describe("CLI", () => {
       agentId: "42",
       rawScore: 5000,
       trustTier: "basic",
+      correlation: { penalty: 300, ruleCount: 1, evidenceHash: "0xabc", timestamp: 1712822400 },
     });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -105,6 +106,7 @@ describe("CLI", () => {
       agentId: "7",
       rawScore: 8000,
       trustTier: "elite",
+      correlation: { penalty: 0, ruleCount: 0, evidenceHash: "0x0", timestamp: 1712822400 },
     });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -119,8 +121,8 @@ describe("CLI", () => {
 
   it("compare calls skill compare with agent ids", async () => {
     mockCompare.mockResolvedValueOnce([
-      { agentId: "2", decayedScore: 9000, trustTier: "elite" },
-      { agentId: "1", decayedScore: 5000, trustTier: "basic" },
+      { agentId: "2", decayedScore: 9000, trustTier: "elite", correlationPenalty: 0, correlationRuleCount: 0 },
+      { agentId: "1", decayedScore: 5000, trustTier: "basic", correlationPenalty: 600, correlationRuleCount: 1 },
     ]);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -129,6 +131,7 @@ describe("CLI", () => {
     expect(mockCompare).toHaveBeenCalledWith({ agentIds: ["1", "2"] });
     const output = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(output[0].agentId).toBe("2");
+    expect(output[1].correlationPenalty).toBe(600);
 
     logSpy.mockRestore();
   });

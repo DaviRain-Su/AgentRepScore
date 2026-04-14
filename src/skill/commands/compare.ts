@@ -1,9 +1,7 @@
 import { query } from "./query.ts";
-import { CompareInput } from "../types.ts";
+import { CompareInput, CompareResultItem } from "../types.ts";
 
-export async function compare(input: CompareInput): Promise<
-  { agentId: string; decayedScore: number; trustTier: "untrusted" | "basic" | "verified" | "elite"; error?: string }[]
-> {
+export async function compare(input: CompareInput): Promise<CompareResultItem[]> {
   const settled = await Promise.allSettled(
     input.agentIds.map(async (agentId) => {
       const score = await query({ agentId });
@@ -11,11 +9,13 @@ export async function compare(input: CompareInput): Promise<
         agentId,
         decayedScore: score.decayedScore,
         trustTier: score.trustTier,
+        correlationPenalty: score.correlation.penalty,
+        correlationRuleCount: score.correlation.ruleCount,
       };
     })
   );
 
-  const results: { agentId: string; decayedScore: number; trustTier: "untrusted" | "basic" | "verified" | "elite"; error?: string }[] = [];
+  const results: CompareResultItem[] = [];
   for (let i = 0; i < settled.length; i++) {
     const s = settled[i];
     if (s.status === "fulfilled") {
@@ -25,6 +25,8 @@ export async function compare(input: CompareInput): Promise<
         agentId: input.agentIds[i],
         decayedScore: -Infinity,
         trustTier: "untrusted",
+        correlationPenalty: 0,
+        correlationRuleCount: 0,
         error: s.reason instanceof Error ? s.reason.message : String(s.reason),
       });
     }

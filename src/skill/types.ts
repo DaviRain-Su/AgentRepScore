@@ -17,6 +17,22 @@ export interface CompareInput {
   agentIds: string[];
 }
 
+export interface CorrelationAssessmentOutput {
+  penalty: number;
+  ruleCount: number;
+  evidenceHash: `0x${string}`;
+  timestamp: number;
+}
+
+export interface CompareResultItem {
+  agentId: string;
+  decayedScore: number;
+  trustTier: "untrusted" | "basic" | "verified" | "elite";
+  correlationPenalty: number;
+  correlationRuleCount: number;
+  error?: string;
+}
+
 export interface ModulesOutput {
   modules: {
     name: string;
@@ -36,6 +52,7 @@ export interface ScoreOutput {
   trustTier: "untrusted" | "basic" | "verified" | "elite";
   timestamp: number;
   evidenceHash?: `0x${string}`;
+  correlation: CorrelationAssessmentOutput;
   moduleBreakdown: {
     name: string;
     score: number;

@@ -155,6 +155,21 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         uint256 timestamp;
     }
 
+    struct CorrelationPolicy {
+        bool enabled;
+        bool washSybilEnabled;
+        bool concentrationLowCounterpartiesEnabled;
+        bool youngWalletHighVolumeEnabled;
+        uint256 highSwapThreshold;
+        uint256 lowCounterpartiesThreshold;
+        uint256 highVolumeThreshold;
+        uint256 youngWalletDaysThreshold;
+        uint256 penaltyWashSybil;
+        uint256 penaltyConcentrationLowCounterparties;
+        uint256 penaltyYoungWalletHighVolume;
+        uint256 maxPenalty;
+    }
+
     struct CorrelationSignalContext {
         bool hasUniswap;
         bool hasActivity;
@@ -173,19 +188,12 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     uint256 public autoDeactivateThreshold;
 
     WeightPolicy public weightPolicy;
+    CorrelationPolicy public correlationPolicy;
     mapping(uint256 => ModuleRuntimeState) private moduleRuntimeStates;
     mapping(uint256 => CorrelationAssessment) private correlationAssessments;
 
     bytes32 private constant _UNISWAP_MODULE_HASH = keccak256("UniswapScoreModule");
     bytes32 private constant _BASE_ACTIVITY_MODULE_HASH = keccak256("BaseActivityModule");
-    uint256 public constant CORRELATION_HIGH_SWAP_THRESHOLD = 50;
-    uint256 public constant CORRELATION_LOW_COUNTERPARTIES_THRESHOLD = 2;
-    uint256 public constant CORRELATION_HIGH_VOLUME_THRESHOLD = 100_000e6;
-    uint256 public constant CORRELATION_YOUNG_WALLET_DAYS_THRESHOLD = 14;
-    int256 private constant _PENALTY_WASH_SYBIL = 2500;
-    int256 private constant _PENALTY_CONCENTRATION_LOW_COUNTERPARTIES = 1200;
-    int256 private constant _PENALTY_YOUNG_HIGH_VOLUME = 1000;
-    int256 private constant _MAX_CORRELATION_PENALTY = 5000;
 
     // Custom errors
     error CooldownNotElapsed(uint256 remaining);
@@ -199,6 +207,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     error BootstrapExpired();
     error InvalidWeightPolicy(uint16 minWeightBps, uint16 decayStepBps, uint16 recoveryStepBps);
     error ThresholdOutOfRange(uint256 threshold);
+    error InvalidCorrelationPolicy();
 
     // Events
     event ModuleRegistered(address indexed module, uint256 weight);
@@ -208,6 +217,20 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
     );
     event WeightPolicyUpdated(
         bool enabled, uint16 minWeightBps, uint16 decayStepBps, uint16 recoveryStepBps, uint8 zeroConfidenceThreshold
+    );
+    event CorrelationPolicyUpdated(
+        bool enabled,
+        bool washSybilEnabled,
+        bool concentrationLowCounterpartiesEnabled,
+        bool youngWalletHighVolumeEnabled,
+        uint256 highSwapThreshold,
+        uint256 lowCounterpartiesThreshold,
+        uint256 highVolumeThreshold,
+        uint256 youngWalletDaysThreshold,
+        uint256 penaltyWashSybil,
+        uint256 penaltyConcentrationLowCounterparties,
+        uint256 penaltyYoungWalletHighVolume,
+        uint256 maxPenalty
     );
     event CorrelationPenaltyApplied(uint256 indexed agentId, int256 penalty, bytes32 evidenceHash, uint8 ruleCount);
     event ValidationResponded(bytes32 indexed requestHash, uint256 indexed agentId, int256 score, bytes32 evidenceHash);
@@ -240,6 +263,20 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         bootstrapDeadline = block.timestamp + 1 hours;
         weightPolicy = WeightPolicy({
             enabled: true, minWeightBps: 2000, decayStepBps: 500, recoveryStepBps: 250, zeroConfidenceThreshold: 3
+        });
+        correlationPolicy = CorrelationPolicy({
+            enabled: true,
+            washSybilEnabled: true,
+            concentrationLowCounterpartiesEnabled: true,
+            youngWalletHighVolumeEnabled: true,
+            highSwapThreshold: 50,
+            lowCounterpartiesThreshold: 2,
+            highVolumeThreshold: 100_000e6,
+            youngWalletDaysThreshold: 14,
+            penaltyWashSybil: 2500,
+            penaltyConcentrationLowCounterparties: 1200,
+            penaltyYoungWalletHighVolume: 1000,
+            maxPenalty: 5000
         });
         autoDeactivateThreshold = weightPolicy.zeroConfidenceThreshold;
         _status = _NOT_ENTERED;
@@ -445,6 +482,95 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         );
     }
 
+    function setCorrelationPolicy(
+        bool enabled,
+        bool washSybilEnabled,
+        bool concentrationLowCounterpartiesEnabled,
+        bool youngWalletHighVolumeEnabled,
+        uint256 highSwapThreshold,
+        uint256 lowCounterpartiesThreshold,
+        uint256 highVolumeThreshold,
+        uint256 youngWalletDaysThreshold,
+        uint256 penaltyWashSybil,
+        uint256 penaltyConcentrationLowCounterparties,
+        uint256 penaltyYoungWalletHighVolume,
+        uint256 maxPenalty
+    ) external onlyGovernance whenNotPaused {
+        uint256 maxAllowedPenalty = uint256(ScoreConstants.MAX_SCORE);
+        if (maxPenalty > maxAllowedPenalty) revert InvalidCorrelationPolicy();
+        if (
+            penaltyWashSybil > maxPenalty || penaltyConcentrationLowCounterparties > maxPenalty
+                || penaltyYoungWalletHighVolume > maxPenalty
+        ) {
+            revert InvalidCorrelationPolicy();
+        }
+
+        correlationPolicy = CorrelationPolicy({
+            enabled: enabled,
+            washSybilEnabled: washSybilEnabled,
+            concentrationLowCounterpartiesEnabled: concentrationLowCounterpartiesEnabled,
+            youngWalletHighVolumeEnabled: youngWalletHighVolumeEnabled,
+            highSwapThreshold: highSwapThreshold,
+            lowCounterpartiesThreshold: lowCounterpartiesThreshold,
+            highVolumeThreshold: highVolumeThreshold,
+            youngWalletDaysThreshold: youngWalletDaysThreshold,
+            penaltyWashSybil: penaltyWashSybil,
+            penaltyConcentrationLowCounterparties: penaltyConcentrationLowCounterparties,
+            penaltyYoungWalletHighVolume: penaltyYoungWalletHighVolume,
+            maxPenalty: maxPenalty
+        });
+
+        emit CorrelationPolicyUpdated(
+            enabled,
+            washSybilEnabled,
+            concentrationLowCounterpartiesEnabled,
+            youngWalletHighVolumeEnabled,
+            highSwapThreshold,
+            lowCounterpartiesThreshold,
+            highVolumeThreshold,
+            youngWalletDaysThreshold,
+            penaltyWashSybil,
+            penaltyConcentrationLowCounterparties,
+            penaltyYoungWalletHighVolume,
+            maxPenalty
+        );
+    }
+
+    function getCorrelationPolicy()
+        external
+        view
+        returns (
+            bool enabled,
+            bool washSybilEnabled,
+            bool concentrationLowCounterpartiesEnabled,
+            bool youngWalletHighVolumeEnabled,
+            uint256 highSwapThreshold,
+            uint256 lowCounterpartiesThreshold,
+            uint256 highVolumeThreshold,
+            uint256 youngWalletDaysThreshold,
+            uint256 penaltyWashSybil,
+            uint256 penaltyConcentrationLowCounterparties,
+            uint256 penaltyYoungWalletHighVolume,
+            uint256 maxPenalty
+        )
+    {
+        CorrelationPolicy memory policy = correlationPolicy;
+        return (
+            policy.enabled,
+            policy.washSybilEnabled,
+            policy.concentrationLowCounterpartiesEnabled,
+            policy.youngWalletHighVolumeEnabled,
+            policy.highSwapThreshold,
+            policy.lowCounterpartiesThreshold,
+            policy.highVolumeThreshold,
+            policy.youngWalletDaysThreshold,
+            policy.penaltyWashSybil,
+            policy.penaltyConcentrationLowCounterparties,
+            policy.penaltyYoungWalletHighVolume,
+            policy.maxPenalty
+        );
+    }
+
     function moduleCount() external view returns (uint256) {
         return modules.length;
     }
@@ -488,13 +614,18 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         int256 totalScore = 0;
         uint256 totalWeight = 0;
         bytes32[] memory evidenceHashes = new bytes32[](modules.length);
+        CorrelationPolicy memory policy = correlationPolicy;
+        bool correlationSignalsEnabled = policy.enabled
+            && (policy.washSybilEnabled
+                || policy.concentrationLowCounterpartiesEnabled
+                || policy.youngWalletHighVolumeEnabled);
         CorrelationSignalContext memory correlationSignals;
 
         for (uint256 i = 0; i < modules.length; i++) {
             if (!modules[i].active) continue;
 
             (int256 modScore, uint256 confidence, bytes32 evidence) = modules[i].module.evaluate(wallet);
-            if (confidence > 0) {
+            if (correlationSignalsEnabled && confidence > 0) {
                 bytes32 moduleNameHash = keccak256(bytes(modules[i].module.name()));
                 if (moduleNameHash == _UNISWAP_MODULE_HASH) {
                     correlationSignals =
@@ -522,7 +653,7 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
             totalScore = totalScore / int256(totalWeight);
         }
 
-        CorrelationAssessment memory correlation = _computeCorrelationPenalty(wallet, correlationSignals);
+        CorrelationAssessment memory correlation = _computeCorrelationPenalty(wallet, correlationSignals, policy);
         if (correlation.penalty > 0) {
             totalScore -= correlation.penalty;
             emit CorrelationPenaltyApplied(
@@ -731,44 +862,54 @@ contract AgentRepValidatorV2 is Initializable, UUPSUpgradeable {
         return signals;
     }
 
-    function _computeCorrelationPenalty(address wallet, CorrelationSignalContext memory signals)
-        internal
-        view
-        returns (CorrelationAssessment memory)
-    {
+    function _computeCorrelationPenalty(
+        address wallet,
+        CorrelationSignalContext memory signals,
+        CorrelationPolicy memory policy
+    ) internal view returns (CorrelationAssessment memory) {
+        if (!policy.enabled) {
+            return CorrelationAssessment({
+                penalty: 0, evidenceHash: bytes32(0), ruleCount: 0, timestamp: block.timestamp
+            });
+        }
+
         int256 penalty = 0;
         uint8 ruleCount = 0;
         uint8 signalMask = 0;
 
-        if (signals.hasUniswap && signals.hasActivity && signals.washTradeFlag && signals.sybilClusterFlag) {
-            penalty += _PENALTY_WASH_SYBIL;
+        if (
+            policy.washSybilEnabled && signals.hasUniswap && signals.hasActivity && signals.washTradeFlag
+                && signals.sybilClusterFlag
+        ) {
+            penalty += int256(policy.penaltyWashSybil);
             ruleCount += 1;
             signalMask |= 0x01;
         }
 
         if (
-            signals.hasUniswap && signals.hasActivity && signals.counterpartyConcentrationFlag
-                && signals.uniqueCounterparties <= CORRELATION_LOW_COUNTERPARTIES_THRESHOLD
-                && signals.swapCount >= CORRELATION_HIGH_SWAP_THRESHOLD
+            policy.concentrationLowCounterpartiesEnabled && signals.hasUniswap && signals.hasActivity
+                && signals.counterpartyConcentrationFlag
+                && signals.uniqueCounterparties <= policy.lowCounterpartiesThreshold
+                && signals.swapCount >= policy.highSwapThreshold
         ) {
-            penalty += _PENALTY_CONCENTRATION_LOW_COUNTERPARTIES;
+            penalty += int256(policy.penaltyConcentrationLowCounterparties);
             ruleCount += 1;
             signalMask |= 0x02;
         }
 
         if (
-            signals.hasUniswap && signals.hasActivity
-                && signals.walletAgeDays <= CORRELATION_YOUNG_WALLET_DAYS_THRESHOLD
-                && signals.volumeUSD >= CORRELATION_HIGH_VOLUME_THRESHOLD
-                && signals.swapCount >= CORRELATION_HIGH_SWAP_THRESHOLD
+            policy.youngWalletHighVolumeEnabled && signals.hasUniswap && signals.hasActivity
+                && signals.walletAgeDays <= policy.youngWalletDaysThreshold
+                && signals.volumeUSD >= policy.highVolumeThreshold && signals.swapCount >= policy.highSwapThreshold
         ) {
-            penalty += _PENALTY_YOUNG_HIGH_VOLUME;
+            penalty += int256(policy.penaltyYoungWalletHighVolume);
             ruleCount += 1;
             signalMask |= 0x04;
         }
 
-        if (penalty > _MAX_CORRELATION_PENALTY) {
-            penalty = _MAX_CORRELATION_PENALTY;
+        int256 maxPenalty = int256(policy.maxPenalty);
+        if (maxPenalty >= 0 && penalty > maxPenalty) {
+            penalty = maxPenalty;
         }
 
         bytes32 evidenceHash = bytes32(0);
