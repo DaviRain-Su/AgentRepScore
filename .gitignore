@@ -28,3 +28,6 @@ artifacts/
 # Keeper runtime files
 .keeper-state.json
 keeper-health.json
+
+# AI assistant / IDE workspace configs
+.pi/
