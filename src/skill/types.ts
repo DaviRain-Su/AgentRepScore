@@ -24,6 +24,7 @@ export const EVIDENCE_PROOF_TYPES = {
 } as const;
 
 export type EvidenceProofType = typeof EVIDENCE_PROOF_TYPES[keyof typeof EVIDENCE_PROOF_TYPES];
+export type EvidenceMode = "legacy-summary" | "accepted-commitment";
 
 export interface EvidenceCommitment {
   root: `0x${string}`;
@@ -39,6 +40,21 @@ export interface EvidenceCommitmentAcceptance extends EvidenceCommitment {
   verifiedAt: number;
 }
 
+export interface EvidenceCommitmentStatus {
+  root: `0x${string}`;
+  leafHash: `0x${string}`;
+  summaryHash: `0x${string}`;
+  epoch: number;
+  blockNumber: string;
+}
+
+export interface EvidenceStatusOutput {
+  evidenceMode: EvidenceMode;
+  verifiedEvidence: boolean;
+  proofType?: EvidenceProofType;
+  commitment?: EvidenceCommitmentStatus;
+}
+
 export interface CorrelationAssessmentOutput {
   penalty: number;
   ruleCount: number;
@@ -52,6 +68,8 @@ export interface CompareResultItem {
   trustTier: "untrusted" | "basic" | "verified" | "elite";
   correlationPenalty: number;
   correlationRuleCount: number;
+  verifiedEvidence: boolean;
+  evidenceMode: EvidenceMode;
   error?: string;
 }
 
@@ -66,7 +84,7 @@ export interface ModulesOutput {
   }[];
 }
 
-export interface ScoreOutput {
+export interface ScoreOutput extends EvidenceStatusOutput {
   agentId: string;
   wallet: `0x${string}`;
   rawScore: number;

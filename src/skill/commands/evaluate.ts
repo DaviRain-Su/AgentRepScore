@@ -5,6 +5,7 @@ import { config } from "../../config.ts";
 import { EvaluateInput, ScoreOutput } from "../types.ts";
 import { applyDecay, trustTier } from "../../utils/score-decay.ts";
 import { identityRegistryAbi, validatorAbi } from "../abis.ts";
+import { resolveEvidenceStatus } from "../evidence-status.ts";
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -90,7 +91,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     }),
   ]);
 
-  const [, moduleNames, , moduleWeights] = moduleConfigs;
+  const [moduleAddresses, moduleNames, , moduleWeights, moduleActiveStates] = moduleConfigs;
   const [effectiveNames, , effectiveBaseWeights] = effectiveWeights;
 
   const nominalWeightsByName: Record<string, number> = {};
@@ -128,6 +129,17 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     };
   });
 
+  const evidenceStatus = await resolveEvidenceStatus({
+    wallet,
+    reader: publicClient,
+    modules: modules[0].map((name, i) => ({
+      name,
+      address: moduleAddresses[i],
+      confidence: Number(modules[2][i]),
+      active: moduleActiveStates[i],
+    })),
+  });
+
   return {
     agentId: input.agentId,
     wallet,
@@ -136,6 +148,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     trustTier: trustTier(decayedScore),
     timestamp,
     evidenceHash,
+    ...evidenceStatus,
     correlation,
     moduleBreakdown,
   };

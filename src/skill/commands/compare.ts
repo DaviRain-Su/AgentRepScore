@@ -11,6 +11,8 @@ export async function compare(input: CompareInput): Promise<CompareResultItem[]>
         trustTier: score.trustTier,
         correlationPenalty: score.correlation.penalty,
         correlationRuleCount: score.correlation.ruleCount,
+        verifiedEvidence: score.verifiedEvidence,
+        evidenceMode: score.evidenceMode,
       };
     })
   );
@@ -27,6 +29,8 @@ export async function compare(input: CompareInput): Promise<CompareResultItem[]>
         trustTier: "untrusted",
         correlationPenalty: 0,
         correlationRuleCount: 0,
+        verifiedEvidence: false,
+        evidenceMode: "legacy-summary",
         error: s.reason instanceof Error ? s.reason.message : String(s.reason),
       });
     }

@@ -297,6 +297,14 @@
             "enum": ["untrusted", "basic", "verified", "elite"]
           },
           "timestamp": { "type": "integer" },
+          "verifiedEvidence": { "type": "boolean" },
+          "evidenceMode": {
+            "$ref": "#/components/schemas/EvidenceMode"
+          },
+          "proofType": { "type": "integer" },
+          "commitment": {
+            "$ref": "#/components/schemas/EvidenceCommitment"
+          },
           "correlation": {
             "$ref": "#/components/schemas/CorrelationAssessment"
           },
@@ -330,6 +338,20 @@
           "effectiveWeight": { "type": "number" }
         }
       },
+      "EvidenceMode": {
+        "type": "string",
+        "enum": ["legacy-summary", "accepted-commitment"]
+      },
+      "EvidenceCommitment": {
+        "type": "object",
+        "properties": {
+          "root": { "type": "string" },
+          "leafHash": { "type": "string" },
+          "summaryHash": { "type": "string" },
+          "epoch": { "type": "integer" },
+          "blockNumber": { "type": "string" }
+        }
+      },
       "CompareResultItem": {
         "type": "object",
         "properties": {
@@ -341,6 +363,10 @@
           },
           "correlationPenalty": { "type": "number" },
           "correlationRuleCount": { "type": "number" },
+          "verifiedEvidence": { "type": "boolean" },
+          "evidenceMode": {
+            "$ref": "#/components/schemas/EvidenceMode"
+          },
           "error": { "type": "string" }
         }
       },

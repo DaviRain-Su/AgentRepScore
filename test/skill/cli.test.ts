@@ -88,6 +88,8 @@ describe("CLI", () => {
       agentId: "42",
       rawScore: 5000,
       trustTier: "basic",
+      verifiedEvidence: true,
+      evidenceMode: "accepted-commitment",
       correlation: { penalty: 300, ruleCount: 1, evidenceHash: "0xabc", timestamp: 1712822400 },
     });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -97,6 +99,7 @@ describe("CLI", () => {
     expect(mockEvaluate).toHaveBeenCalledWith({ agentId: "42" });
     const output = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(output.agentId).toBe("42");
+    expect(output.verifiedEvidence).toBe(true);
 
     logSpy.mockRestore();
   });
@@ -106,6 +109,8 @@ describe("CLI", () => {
       agentId: "7",
       rawScore: 8000,
       trustTier: "elite",
+      verifiedEvidence: false,
+      evidenceMode: "legacy-summary",
       correlation: { penalty: 0, ruleCount: 0, evidenceHash: "0x0", timestamp: 1712822400 },
     });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -115,14 +120,31 @@ describe("CLI", () => {
     expect(mockQuery).toHaveBeenCalledWith({ agentId: "7" });
     const output = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(output.trustTier).toBe("elite");
+    expect(output.evidenceMode).toBe("legacy-summary");
 
     logSpy.mockRestore();
   });
 
   it("compare calls skill compare with agent ids", async () => {
     mockCompare.mockResolvedValueOnce([
-      { agentId: "2", decayedScore: 9000, trustTier: "elite", correlationPenalty: 0, correlationRuleCount: 0 },
-      { agentId: "1", decayedScore: 5000, trustTier: "basic", correlationPenalty: 600, correlationRuleCount: 1 },
+      {
+        agentId: "2",
+        decayedScore: 9000,
+        trustTier: "elite",
+        correlationPenalty: 0,
+        correlationRuleCount: 0,
+        verifiedEvidence: true,
+        evidenceMode: "accepted-commitment",
+      },
+      {
+        agentId: "1",
+        decayedScore: 5000,
+        trustTier: "basic",
+        correlationPenalty: 600,
+        correlationRuleCount: 1,
+        verifiedEvidence: false,
+        evidenceMode: "legacy-summary",
+      },
     ]);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -131,7 +153,11 @@ describe("CLI", () => {
     expect(mockCompare).toHaveBeenCalledWith({ agentIds: ["1", "2"] });
     const output = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(output[0].agentId).toBe("2");
+    expect(output[0].verifiedEvidence).toBe(true);
+    expect(output[0].evidenceMode).toBe("accepted-commitment");
     expect(output[1].correlationPenalty).toBe(600);
+    expect(output[1].verifiedEvidence).toBe(false);
+    expect(output[1].evidenceMode).toBe("legacy-summary");
 
     logSpy.mockRestore();
   });

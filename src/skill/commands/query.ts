@@ -4,6 +4,7 @@ import { QueryInput, ScoreOutput } from "../types.ts";
 import { applyDecay, trustTier } from "../../utils/score-decay.ts";
 import { config } from "../../config.ts";
 import { identityRegistryAbi, validatorAbi } from "../abis.ts";
+import { resolveEvidenceStatus } from "../evidence-status.ts";
 
 const chain = config.network === "mainnet" ? xLayer : xLayerTestnet;
 
@@ -54,7 +55,7 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
     }),
   ]);
 
-  const [, moduleNames, , moduleWeights] = moduleConfigs;
+  const [moduleAddresses, moduleNames, , moduleWeights, moduleActiveStates] = moduleConfigs;
   const [effectiveNames, , effectiveBaseWeights] = effectiveWeights;
 
   const nominalWeightsByName: Record<string, number> = {};
@@ -91,6 +92,17 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
     };
   });
 
+  const evidenceStatus = await resolveEvidenceStatus({
+    wallet,
+    reader: publicClient,
+    modules: modules[0].map((name, i) => ({
+      name,
+      address: moduleAddresses[i],
+      confidence: Number(modules[2][i]),
+      active: moduleActiveStates[i],
+    })),
+  });
+
   return {
     agentId: input.agentId,
     wallet,
@@ -98,6 +110,7 @@ export async function query(input: QueryInput): Promise<ScoreOutput> {
     decayedScore,
     trustTier: trustTier(decayedScore),
     timestamp,
+    ...evidenceStatus,
     correlation,
     moduleBreakdown,
   };
