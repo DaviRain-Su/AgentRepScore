@@ -36,26 +36,31 @@ function loadFoundryArtifact(name: string, subdir = ""): { abi: any; bytecode: `
   return { abi: artifact.abi, bytecode: artifact.bytecode.object as `0x${string}` };
 }
 
-async function waitForNonce(expectedNonce: number, maxWait = 30_000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < maxWait) {
-    const current = await publicClient.getTransactionCount({ address: account.address });
-    if (current >= expectedNonce) return;
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  throw new Error(`Nonce did not reach ${expectedNonce} in ${maxWait}ms`);
-}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function deploy(name: string, args: any[] = [], subdir = ""): Promise<Address> {
   const { abi, bytecode } = loadFoundryArtifact(name, subdir);
-  const nonce = await publicClient.getTransactionCount({ address: account.address });
-  await waitForNonce(nonce);
-  const hash = await walletClient.deployContract({ abi, bytecode, args, nonce });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
-  if (!receipt.contractAddress) throw new Error(`Deploy ${name} failed`);
-  console.log(`${name} deployed to: ${receipt.contractAddress}`);
-  await waitForNonce(nonce + 1);
-  return receipt.contractAddress;
+  // X Layer testnet RPC has slow nonce propagation; retry on nonce conflicts
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const hash = await walletClient.deployContract({ abi, bytecode, args });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
+      if (!receipt.contractAddress) throw new Error(`Deploy ${name} failed`);
+      console.log(`${name} deployed to: ${receipt.contractAddress}`);
+      // Wait for RPC nonce to catch up before next deploy
+      await sleep(3000);
+      return receipt.contractAddress;
+    } catch (err: any) {
+      if (attempt < 4 && (err.message?.includes("underpriced") || err.message?.includes("nonce"))) {
+        console.log(`Deploy ${name} nonce conflict, retrying in 5s (attempt ${attempt + 1})...`);
+        await sleep(5000);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error(`Deploy ${name} failed after retries`);
 }
 
 async function main() {
@@ -104,56 +109,52 @@ async function main() {
   await publicClient.waitForTransactionReceipt({ hash: bootstrapHash });
   console.log("Bootstrapped modules");
 
-  // 6. Set keepers
+  // 6. Set keepers (with retry for nonce conflicts)
   const uniModAbi = loadFoundryArtifact("UniswapScoreModule", "UniswapScoreModule.sol").abi;
   const baseModAbi = loadFoundryArtifact("BaseActivityModule", "BaseActivityModule.sol").abi;
-  await publicClient.waitForTransactionReceipt({
-    hash: await walletClient.writeContract({
-      address:uniModule,abi:uniModAbi,functionName:"setKeeper",args:[account.address,true]
-    })
-  });
-  await publicClient.waitForTransactionReceipt({
-    hash: await walletClient.writeContract({
-      address:baseModule,abi:baseModAbi,functionName:"setKeeper",args:[account.address,true]
-    })
-  });
-  console.log("Set keepers");
 
-  // 7. Mock identity set wallet
+  async function sendTx(opts: any, label: string) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const hash = await walletClient.writeContract(opts);
+        await publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
+        console.log(`${label} confirmed`);
+        await sleep(3000);
+        return;
+      } catch (err: any) {
+        if (attempt < 4 && (err.message?.includes("underpriced") || err.message?.includes("nonce"))) {
+          console.log(`${label} nonce conflict, retrying in 5s (attempt ${attempt + 1})...`);
+          await sleep(5000);
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  await sendTx({address:uniModule,abi:uniModAbi,functionName:"setKeeper",args:[account.address,true]}, "setKeeper(uniModule)");
+  await sendTx({address:baseModule,abi:baseModAbi,functionName:"setKeeper",args:[account.address,true]}, "setKeeper(baseModule)");
+
+  // 7. Mock identity set wallets for agents 8 (good), 10 (wash), 42 (legacy)
   const mockIdAbi = loadFoundryArtifact("MockIdentityRegistry").abi;
-  const agentId = 42n;
-  await publicClient.waitForTransactionReceipt({
-    hash: await walletClient.writeContract({
-      address: mockIdentity, abi: mockIdAbi, functionName: "setAgentWallet", args: [agentId, account.address]
-    })
-  });
-  console.log(`Set agent ${agentId} wallet`);
+  const WASH_WALLET = "0x000000000000000000000000000000000000dEaD" as Address;
+  const walletGood = account.address;
+  const walletWash = WASH_WALLET;
+  const walletDefault = account.address;
+  const agentProfiles = [
+    { id: 8n, wallet: walletGood, label: "good" },
+    { id: 10n, wallet: walletWash, label: "wash" },
+    { id: 42n, wallet: walletDefault, label: "legacy" },
+  ] as const;
+  for (const agent of agentProfiles) {
+    await sendTx(
+      { address: mockIdentity, abi: mockIdAbi, functionName: "setAgentWallet", args: [agent.id, agent.wallet] },
+      `setAgentWallet(${agent.id}, ${agent.label})`
+    );
+  }
 
-  // 8. Submit swap summary to Uniswap module
+  // 8. Submit swap summaries to Uniswap module
   const mockPool = await deploy("MockSwapPool", [], "MockSwapPool.sol");
-  await publicClient.waitForTransactionReceipt({
-    hash: await walletClient.writeContract({
-      address: mockPool,
-      abi: loadFoundryArtifact("MockSwapPool").abi,
-      functionName: "emitSwap",
-      args: [account.address, account.address, 1000000n, -950000n, 79228162514264337593543950336n, 1000000n, 0],
-    })
-  });
-
-  const swapSummary = {
-    swapCount: 1n,
-    volumeUSD: 1000000n,
-    netPnL: 50000n,
-    avgSlippageBps: 10n,
-    feeToPnlRatioBps: 100n,
-    washTradeFlag: false,
-    counterpartyConcentrationFlag: false,
-    timestamp: BigInt(Math.floor(Date.now() / 1000)),
-    evidenceHash: keccak256(toBytes("e2e-test-swap")),
-    pool: mockPool,
-  };
-  const uniNonce = await fetchNonce(publicClient as any, uniModule, account.address);
-  const uniSig = await signSwapSummary(walletClient as any, uniModule, account.address, swapSummary, uniNonce);
   const submitSwapAbi = [
     {
       inputs: [
@@ -183,35 +184,96 @@ async function main() {
       type: "function",
     },
   ] as const;
-  await submitWithRetry(
-    async () => {
-      const hash = await walletClient.writeContract({
-        chain: xLayerTestnet as Chain,
-        account,
-        address: uniModule,
-        abi: submitSwapAbi,
-        functionName: "submitSwapSummary",
-        args: [account.address, swapSummary, uniSig],
-      });
-      return publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
-    },
-    { label: "submitSwapSummary", maxRetries: 3 }
-  );
-  console.log("Submitted swap summary");
 
-  // 9. Submit activity summary to Base module
+  async function submitSwapForWallet(wallet: Address, summary: any) {
+    const nonce = await fetchNonce(publicClient as any, uniModule, wallet);
+    const sig = await signSwapSummary(walletClient as any, uniModule, wallet, summary, nonce);
+    await submitWithRetry(
+      async () => {
+        const hash = await walletClient.writeContract({
+          chain: xLayerTestnet as Chain,
+          account,
+          address: uniModule,
+          abi: submitSwapAbi,
+          functionName: "submitSwapSummary",
+          args: [wallet, summary, sig],
+        });
+        return publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
+      },
+      { label: `submitSwapSummary-${wallet.slice(0, 6)}`, maxRetries: 3 }
+    );
+    console.log(`Submitted swap summary for ${wallet}`);
+  }
+
   const now = BigInt(Math.floor(Date.now() / 1000));
-  const actSummary = {
-    txCount: 50n,
-    firstTxTimestamp: now - 86400n * 30n,
-    lastTxTimestamp: now,
-    uniqueCounterparties: 10n,
+
+  // Good profile swap (agent 8)
+  await publicClient.waitForTransactionReceipt({
+    hash: await walletClient.writeContract({
+      address: mockPool,
+      abi: loadFoundryArtifact("MockSwapPool").abi,
+      functionName: "emitSwap",
+      args: [walletGood, walletGood, 1000000n, -950000n, 79228162514264337593543950336n, 1000000n, 0],
+    })
+  });
+  await submitSwapForWallet(walletGood, {
+    swapCount: 1n,
+    volumeUSD: 1000000n,
+    netPnL: 50000n,
+    avgSlippageBps: 10n,
+    feeToPnlRatioBps: 100n,
+    washTradeFlag: false,
+    counterpartyConcentrationFlag: false,
     timestamp: now,
-    evidenceHash: keccak256(toBytes("e2e-test-activity")),
-    sybilClusterFlag: false,
-  };
-  const baseNonce = await fetchNonce(publicClient as any, baseModule, account.address);
-  const baseSig = await signActivitySummary(walletClient as any, baseModule, account.address, actSummary, baseNonce);
+    evidenceHash: keccak256(toBytes("e2e-test-swap-good")),
+    pool: mockPool,
+  });
+
+  // Wash profile swap (agent 10)
+  await publicClient.waitForTransactionReceipt({
+    hash: await walletClient.writeContract({
+      address: mockPool,
+      abi: loadFoundryArtifact("MockSwapPool").abi,
+      functionName: "emitSwap",
+      args: [walletWash, walletWash, 1000000n, -1100000n, 79228162514264337593543950336n, 1000000n, 0],
+    })
+  });
+  await submitSwapForWallet(walletWash, {
+    swapCount: 1n,
+    volumeUSD: 1000000n,
+    netPnL: -100000n,
+    avgSlippageBps: 800n,
+    feeToPnlRatioBps: 100n,
+    washTradeFlag: true,
+    counterpartyConcentrationFlag: false,
+    timestamp: now,
+    evidenceHash: keccak256(toBytes("e2e-test-swap-wash")),
+    pool: mockPool,
+  });
+
+  // Default profile swap (agent 42)
+  await publicClient.waitForTransactionReceipt({
+    hash: await walletClient.writeContract({
+      address: mockPool,
+      abi: loadFoundryArtifact("MockSwapPool").abi,
+      functionName: "emitSwap",
+      args: [walletDefault, walletDefault, 1000000n, -950000n, 79228162514264337593543950336n, 1000000n, 0],
+    })
+  });
+  await submitSwapForWallet(walletDefault, {
+    swapCount: 1n,
+    volumeUSD: 1000000n,
+    netPnL: 50000n,
+    avgSlippageBps: 10n,
+    feeToPnlRatioBps: 100n,
+    washTradeFlag: false,
+    counterpartyConcentrationFlag: false,
+    timestamp: now,
+    evidenceHash: keccak256(toBytes("e2e-test-swap-default")),
+    pool: mockPool,
+  });
+
+  // 9. Submit activity summaries to Base module
   const submitActAbi = [
     {
       inputs: [
@@ -238,54 +300,106 @@ async function main() {
       type: "function",
     },
   ] as const;
-  await submitWithRetry(
-    async () => {
-      const hash = await walletClient.writeContract({
-        chain: xLayerTestnet as Chain,
-        account,
-        address: baseModule,
-        abi: submitActAbi,
-        functionName: "submitActivitySummary",
-        args: [account.address, actSummary, baseSig],
-      });
-      return publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
-    },
-    { label: "submitActivitySummary", maxRetries: 3 }
-  );
-  console.log("Submitted activity summary");
 
-  // 10. Evaluate
-  const evalHash = await walletClient.writeContract({
-    address: proxyAddress,
-    abi: v2Abi,
-    functionName: "evaluateAgent",
-    args: [agentId],
+  async function submitActivityForWallet(wallet: Address, summary: any) {
+    const nonce = await fetchNonce(publicClient as any, baseModule, wallet);
+    const sig = await signActivitySummary(walletClient as any, baseModule, wallet, summary, nonce);
+    await submitWithRetry(
+      async () => {
+        const hash = await walletClient.writeContract({
+          chain: xLayerTestnet as Chain,
+          account,
+          address: baseModule,
+          abi: submitActAbi,
+          functionName: "submitActivitySummary",
+          args: [wallet, summary, sig],
+        });
+        return publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
+      },
+      { label: `submitActivitySummary-${wallet.slice(0, 6)}`, maxRetries: 3 }
+    );
+    console.log(`Submitted activity summary for ${wallet}`);
+  }
+
+  // Good activity (agent 8): mature wallet, many counterparties
+  await submitActivityForWallet(walletGood, {
+    txCount: 50n,
+    firstTxTimestamp: now - 86400n * 30n,
+    lastTxTimestamp: now,
+    uniqueCounterparties: 10n,
+    timestamp: now,
+    evidenceHash: keccak256(toBytes("e2e-test-activity-good")),
+    sybilClusterFlag: false,
   });
-  await publicClient.waitForTransactionReceipt({ hash: evalHash });
-  console.log("evaluateAgent called");
 
-  // 11. Query
-  const latest = await publicClient.readContract({
-    address: proxyAddress,
-    abi: v2Abi,
-    functionName: "getLatestScore",
-    args: [agentId],
-  }) as readonly [bigint, bigint, `0x${string}`];
-  console.log("Latest score:", latest[0].toString());
+  // Wash activity (agent 10): new wallet, few counterparties, sybil flagged
+  await submitActivityForWallet(walletWash, {
+    txCount: 5n,
+    firstTxTimestamp: now - 86400n * 3n,
+    lastTxTimestamp: now,
+    uniqueCounterparties: 2n,
+    timestamp: now,
+    evidenceHash: keccak256(toBytes("e2e-test-activity-wash")),
+    sybilClusterFlag: true,
+  });
 
-  const modScores = await publicClient.readContract({
-    address: proxyAddress,
-    abi: v2Abi,
-    functionName: "getModuleScores",
-    args: [agentId],
-  }) as readonly [readonly string[], readonly bigint[], readonly bigint[], readonly `0x${string}`[]];
-  for (let i = 0; i < modScores[0].length; i++) {
-    console.log(`  ${modScores[0][i]}: score=${modScores[1][i]}, conf=${modScores[2][i]}`);
+  // Default activity (agent 42)
+  await submitActivityForWallet(walletDefault, {
+    txCount: 50n,
+    firstTxTimestamp: now - 86400n * 30n,
+    lastTxTimestamp: now,
+    uniqueCounterparties: 10n,
+    timestamp: now,
+    evidenceHash: keccak256(toBytes("e2e-test-activity-default")),
+    sybilClusterFlag: false,
+  });
+
+  // 10. Evaluate agents 8, 10, 42
+  for (const agent of agentProfiles) {
+    const evalHash = await walletClient.writeContract({
+      address: proxyAddress,
+      abi: v2Abi,
+      functionName: "evaluateAgent",
+      args: [agent.id],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: evalHash });
+    console.log(`evaluateAgent(${agent.id}) [${agent.label}] called`);
+  }
+
+  // 11. Query all agents
+  for (const agent of agentProfiles) {
+    const latest = await publicClient.readContract({
+      address: proxyAddress,
+      abi: v2Abi,
+      functionName: "getLatestScore",
+      args: [agent.id],
+    }) as readonly [bigint, bigint, `0x${string}`];
+    console.log(`\nAgent ${agent.id} (${agent.label}): score=${latest[0]}`);
+
+    const modScores = await publicClient.readContract({
+      address: proxyAddress,
+      abi: v2Abi,
+      functionName: "getModuleScores",
+      args: [agent.id],
+    }) as readonly [readonly string[], readonly bigint[], readonly bigint[], readonly `0x${string}`[]];
+    for (let i = 0; i < modScores[0].length; i++) {
+      console.log(`  ${modScores[0][i]}: score=${modScores[1][i]}, conf=${modScores[2][i]}`);
+    }
   }
 
   console.log("\n=== V2 Mock E2E PASSED ===");
   console.log(`Proxy: ${proxyAddress}`);
-  console.log(`AgentId: ${agentId}`);
+  console.log(`MockIdentityRegistry: ${mockIdentity}`);
+  console.log(`MockReputationRegistry: ${mockReputation}`);
+  console.log(`UniswapModule: ${uniModule}`);
+  console.log(`BaseModule: ${baseModule}`);
+  console.log(`\n.env update:`);
+  console.log(`IDENTITY_REGISTRY=${mockIdentity}`);
+  console.log(`REPUTATION_REGISTRY=${mockReputation}`);
+  console.log(`VALIDATOR_ADDRESS=${proxyAddress}`);
+  console.log(`UNISWAP_MODULE=${uniModule}`);
+  console.log(`BASE_MODULE=${baseModule}`);
+  console.log(`\nRegistered agents: 8 (good), 10 (wash), 42 (legacy)`);
 }
 
 main().catch((err) => {

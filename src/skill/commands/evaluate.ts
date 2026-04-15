@@ -18,6 +18,46 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 const chain = config.network === "mainnet" ? xLayer : xLayerTestnet;
 
+const validatorIdentityRegistryAbi = [
+  {
+    inputs: [],
+    name: "identityRegistry",
+    outputs: [{ internalType: "address", name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
+async function resolveAgentWallet(
+  publicClient: ReturnType<typeof createPublicClient>,
+  validatorAddress: `0x${string}`,
+  agentId: bigint
+): Promise<`0x${string}`> {
+  const configuredIdentity = config.identityRegistry as `0x${string}`;
+
+  try {
+    return await publicClient.readContract({
+      address: configuredIdentity,
+      abi: identityRegistryAbi,
+      functionName: "getAgentWallet",
+      args: [agentId],
+    });
+  } catch {
+    const validatorIdentity = await publicClient.readContract({
+      address: validatorAddress,
+      abi: validatorIdentityRegistryAbi,
+      functionName: "identityRegistry",
+    });
+
+    return await publicClient.readContract({
+      address: validatorIdentity as `0x${string}`,
+      abi: identityRegistryAbi,
+      functionName: "getAgentWallet",
+      args: [agentId],
+    });
+  }
+}
+
 export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { evidenceHash: `0x${string}` }> {
   if (!config.validatorAddress) {
     throw new Error("VALIDATOR_ADDRESS not set");
@@ -32,13 +72,8 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
   const transport = http(config.rpc);
   const walletClient = createWalletClient({ account, chain, transport });
   const publicClient = createPublicClient({ chain, transport });
-
-  const wallet = await publicClient.readContract({
-    address: config.identityRegistry as `0x${string}`,
-    abi: identityRegistryAbi,
-    functionName: "getAgentWallet",
-    args: [BigInt(input.agentId)],
-  });
+  const agentId = BigInt(input.agentId);
+  const wallet = await resolveAgentWallet(publicClient, VALIDATOR_ADDRESS, agentId);
 
   if (wallet === "0x0000000000000000000000000000000000000000") {
     throw new Error("Agent wallet not set");
@@ -48,7 +83,7 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     address: VALIDATOR_ADDRESS,
     abi: validatorAbi,
     functionName: "evaluateAgent",
-    args: [BigInt(input.agentId)],
+    args: [agentId],
   });
 
   const receipt = await withTimeout(
@@ -60,18 +95,18 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     throw new Error("evaluateAgent transaction failed");
   }
 
-  const [latest, modules, moduleConfigs, effectiveWeights, correlationAssessment] = await Promise.all([
+  const [latest, modules, moduleConfigs, correlationAssessment] = await Promise.all([
     publicClient.readContract({
       address: VALIDATOR_ADDRESS,
       abi: validatorAbi,
       functionName: "getLatestScore",
-      args: [BigInt(input.agentId)],
+      args: [agentId],
     }),
     publicClient.readContract({
       address: VALIDATOR_ADDRESS,
       abi: validatorAbi,
       functionName: "getModuleScores",
-      args: [BigInt(input.agentId)],
+      args: [agentId],
     }),
     publicClient.readContract({
       address: VALIDATOR_ADDRESS,
@@ -81,18 +116,20 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
     publicClient.readContract({
       address: VALIDATOR_ADDRESS,
       abi: validatorAbi,
-      functionName: "getEffectiveWeights",
-    }),
-    publicClient.readContract({
-      address: VALIDATOR_ADDRESS,
-      abi: validatorAbi,
       functionName: "getCorrelationAssessment",
-      args: [BigInt(input.agentId)],
+      args: [agentId],
     }),
   ]);
 
+  const effectiveWeights = await publicClient
+    .readContract({
+      address: VALIDATOR_ADDRESS,
+      abi: validatorAbi,
+      functionName: "getEffectiveWeights",
+    })
+    .catch(() => null);
+
   const [moduleAddresses, moduleNames, , moduleWeights, moduleActiveStates] = moduleConfigs;
-  const [effectiveNames, , effectiveBaseWeights] = effectiveWeights;
 
   const nominalWeightsByName: Record<string, number> = {};
   for (let i = 0; i < moduleNames.length; i++) {
@@ -100,8 +137,11 @@ export async function evaluate(input: EvaluateInput): Promise<ScoreOutput & { ev
   }
 
   const effectiveWeightsByName: Record<string, number> = {};
-  for (let i = 0; i < effectiveNames.length; i++) {
-    effectiveWeightsByName[effectiveNames[i]] = Number(effectiveBaseWeights[i]);
+  if (effectiveWeights) {
+    const [effectiveNames, , effectiveBaseWeights] = effectiveWeights;
+    for (let i = 0; i < effectiveNames.length; i++) {
+      effectiveWeightsByName[effectiveNames[i]] = Number(effectiveBaseWeights[i]);
+    }
   }
 
   const rawScore = Number(latest[0]);

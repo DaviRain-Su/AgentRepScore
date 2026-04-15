@@ -1,7 +1,7 @@
 {
   "name": "AgentRepScore",
   "version": "1.0.0",
-  "description": "",
+  "description": "Agent reputation scoring skill and infrastructure for X Layer.",
   "main": "index.js",
   "bin": {
     "rep": "./bin/rep.mjs"
@@ -19,9 +19,14 @@
     "keeper:health": "npx tsx scripts/keeper-health.ts",
     "server": "node --import tsx src/server.ts"
   },
-  "keywords": [],
+  "keywords": ["pi-package"],
   "author": "",
   "license": "ISC",
+  "pi": {
+    "skills": [
+      "./skills"
+    ]
+  },
   "devDependencies": {
     "@nomicfoundation/hardhat-foundry": "^3.0.0",
     "@nomicfoundation/hardhat-toolbox-viem": "^5.0.3",

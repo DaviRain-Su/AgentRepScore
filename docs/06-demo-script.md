@@ -15,9 +15,9 @@
 
 - **当前可交付**：`X Layer Sepolia testnet` 上的可复现 demo
 - **当前可演示**：
-  - 链上注册 / 评分 / 查询 / 对比
-  - evidence / commitment 状态输出
-  - 模块化评分结构
+  - 链上注册 / 评分 / 查询 / 对比（通过 CLI Skill）
+  - Good agent vs Wash agent 区分
+  - 模块化评分结构（Uniswap + BaseActivity）
 - **主网状态**：
   - 代码路径已支持主网
   - 但当前不建议承诺“主网 live demo 已 ready”
@@ -66,15 +66,13 @@
 ### 录屏时建议展示的内容
 
 1. `README.md` 中的测试网部署信息
-2. `rep query`
-3. `rep evaluate`
-4. `rep compare`
+2. `rep query 8`（good agent，score 6692，verified）
+3. `rep query 10`（wash agent，score 0，untrusted）
+4. `rep compare 8 10`（横向对比）
 5. 返回结果中的：
    - `rawScore`
    - `decayedScore`
    - `trustTier`
-   - `verifiedEvidence`
-   - `evidenceMode`
    - `moduleBreakdown`
 
 ---
@@ -90,29 +88,29 @@
 可展示：
 - `README.md` 中 `X Layer Sepolia 测试网部署`
 
-#### Step 2: 查询单个 Agent
+#### Step 2: 查询 Good Agent
 
 ```bash
 rep query 8
 ```
 
-#### Step 3: 触发评分
+预期输出：score 6692, trust tier verified, Uniswap 7500/100%, BaseActivity 5400/100%
+
+#### Step 3: 查询 Wash Agent
 
 ```bash
-rep evaluate 8
+rep query 10
 ```
 
-#### Step 4: 对比两个 Agent
+预期输出：score 0, trust tier untrusted, 所有模块 0/0%
+
+#### Step 4: 横向对比
 
 ```bash
 rep compare 8 10
 ```
 
-#### Step 5: 可选展示模块
-
-```bash
-rep modules
-```
+预期输出：verified vs untrusted，一目了然
 
 ### Option B: HTTP API Demo
 
@@ -165,8 +163,8 @@ AgentRepScore 的核心结构有三层：
 第二层是 **Validator + Modules**，不同协议的数据通过模块化方式进入统一评分逻辑。  
 第三层是 **Skill / CLI / API**，方便上层应用直接调用 `evaluate`、`query`、`compare`。
 
-关键点不只是“算一个分”，而是：  
-这个分数来自链上真实行为，而且能附带 evidence 状态，告诉消费方这份结果是传统 summary，还是已经进入 accepted commitment 模式。
+关键点不只是”算一个分”，而是：  
+这个分数来自链上真实行为，合约直接区分 good agent 和 wash agent，无需人工审核。
 
 ### 5.3 Live Demo
 
@@ -192,11 +190,8 @@ rep evaluate 8
 rep compare 8 10
 ```
 
-这里可以看到两个 Agent 的排序差异。  
-这类结果不是单纯“谁高谁低”，还体现了：
-- trust tier
-- correlation penalty
-- verified evidence status
+这里可以看到两个 Agent 的排序差异：6692 verified vs 0 untrusted。  
+消费方只需看 trust tier 就能做出决策。
 
 这也是 AgentRepScore 最有价值的部分：  
 我们不是只给一个总分，而是给出一套可解释、可验证的评分结构。
@@ -255,7 +250,7 @@ Second, **Validator plus modular score modules**, which turn protocol-specific a
 Third, a **Skill / CLI / API** layer, which makes the system easy to consume through commands like `evaluate`, `query`, and `compare`.
 
 What matters here is not just producing a score.  
-It is producing a score that is tied to on-chain evidence, and that can expose whether the evidence is a legacy summary or an accepted commitment.
+It is producing a score from real on-chain behavior, where the contract directly distinguishes good agents from wash traders — no human review needed.
 
 ### 6.3 Live Demo
 
@@ -281,11 +276,8 @@ Then I compare two agents:
 rep compare 8 10
 ```
 
-This shows a ranked comparison between agents.  
-It is not only about who scores higher; it also shows:
-- trust tier
-- correlation penalty
-- verified evidence status
+This shows a ranked comparison between agents: 6692 verified vs 0 untrusted.  
+Consumers only need to look at the trust tier to make decisions.
 
 That is one of the main strengths of AgentRepScore:  
 we are not outputting only a single number, but an explainable and verifiable reputation surface.

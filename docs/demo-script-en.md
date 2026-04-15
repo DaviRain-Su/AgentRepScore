@@ -7,12 +7,12 @@
 
 ## 1. Hook (30 seconds)
 
-**【Visual】** Fade from black to the project logo, then immediately cut to a CLI terminal showing two wallet scores side-by-side: one `8807 elite`, the other `2876 basic`.
+**【Visual】** Fade from black to the project logo, then immediately cut to a CLI terminal showing two wallet scores side-by-side: one `6692 verified`, the other `0 untrusted`.
 
 **【Script】**
 > Hi, I'm the developer of AgentRepScore. Today I want to show you something critical in the age of AI Agents: **how to verify an Agent's on-chain reputation using the smart contract itself**, instead of trusting anyone who says "my data is real."
 > 
-> Here are two profiles for the same wallet: the good profile scores elite, while the wash-trading profile drops to basic. The difference isn't my opinion — **it's calculated directly by the contract reading real Uniswap and Aave on-chain data.**
+> Here are two profiles for the same wallet: the good profile scores verified, while the wash-trading profile drops to untrusted. The difference isn't my opinion — **it's calculated directly by the contract reading real Uniswap and on-chain activity data.**
 
 ---
 
@@ -23,7 +23,7 @@
 **【Script】**
 > Most AI Agent evaluations today rely on off-chain synthetic data. Developers can easily fake transaction histories, wash-trade, or manipulate PnL.
 > 
-> Our solution is simple: **move the eval onto the chain.** The AgentRepValidator contract reads live Uniswap and Aave data, computes the score, and writes it to an ERC-8004 Reputation Registry.
+> Our solution is simple: **move the eval onto the chain.** The AgentRepValidator contract reads live Uniswap and on-chain activity data, computes the score, and writes it to an ERC-8004 Reputation Registry.
 > 
 > Consumers only need to check one thing: `clientAddress == contract address`. Only scores computed by the contract itself are trusted. This eliminates fraud at the root.
 
@@ -32,24 +32,22 @@
 ## 3. Architecture (60 seconds)
 
 **【Visual】** Architecture diagram (text version is fine):
-- Wallet → Uniswap / Aave / BaseActivity
+- Wallet → Uniswap / BaseActivity
 - ↓
 - AgentRepValidator (on-chain computation)
 - ↓
 - ERC-8004 ReputationRegistry
 - ↓
-- Skill API / CLI / any consumer
+- CLI Skill / any consumer
 
 **【Script】**
 > Our architecture has three layers:
 > 
-> **First, data-source modules.** Every DeFi protocol is an independent `IScoreModule`. We currently have a Uniswap trading module, an on-chain base-activity module, and a newly integrated Aave module. Adding a new protocol only requires deploying a new module — the main validator contract never needs to change.
+> **First, data-source modules.** Every DeFi protocol is an independent `IScoreModule`. We currently have a Uniswap trading module and an on-chain base-activity module. Adding a new protocol (like Aave) only requires deploying a new module — the main validator contract never needs to change.
 > 
 > **Second, the validation layer.** The `AgentRepValidator` contract reads summarized data from all modules and performs three anti-cheat checks: wash-trade loop detection, counterparty concentration penalty, and sybil funding-cluster detection. Any cheating behavior is penalized directly in the score.
 > 
-> **Third, the consumption layer.** We provide a Skill API and CLI. Anyone can `query` a wallet's score, `evaluate` a fresh computation, or `compare` multiple Agents side-by-side.
-> 
-> And the most important part: **every output includes an evidence status.** If the on-chain evidence commitment is accepted, the API returns `verifiedEvidence: true` along with the on-chain commitment data.
+> **Third, the consumption layer.** We provide a CLI that a Code Agent can execute directly. Anyone can `query` a wallet's score, `evaluate` a fresh computation, or `compare` multiple Agents side-by-side.
 
 ---
 
@@ -66,38 +64,36 @@
 
 **【Visual】** Run in terminal:
 ```bash
-pnpm cli evaluate --agent-id 8 --wallet 0x...
+rep query 8
 ```
 
 **【Script】**
-> This is Agent 8, the good profile. Running evaluate forces the contract to re-read on-chain data and compute the score.
+> This is Agent 8, the good profile. Running query reads the current on-chain score.
 > 
-> 【Wait for output】We see: raw score 9200, decayed score 8807, trust tier elite. No correlation penalty was triggered. The module breakdown shows high Uniswap volume, positive PnL, and diversified counterparties.
+> 【Wait for output】We see: raw score 6692, trust tier verified. No correlation penalty was triggered. The module breakdown shows Uniswap score 7500 at 100% confidence, and BaseActivity score 5400 at 100% confidence.
 > 
-> Most importantly: **verifiedEvidence is true**, evidenceMode is `accepted-commitment`, meaning the on-chain evidence commitment has been accepted by the contract. This `commitment.root` field is the actual Merkle root stored on-chain.
+> This tells us the wallet has healthy on-chain behavior: high volume, positive PnL, and diversified counterparties.
 
 ### 4.3 Evaluate — Wash Wallet (45 seconds)
 
 **【Visual】** Run the same command with agent-id 10 (wash profile).
 
 **【Script】**
-> Now let's look at the wash profile for the same wallet, Agent 10.
+> Now let's look at the wash profile, Agent 10.
 > 
-> 【Wait for output】The score collapses to 2876, trust tier basic. Why? The module breakdown shows high slippage, negative PnL, and critically — the correlation penalty was triggered because the system detected a wash-trading loop pattern.
-> 
-> Also notice verifiedEvidence is false and evidenceMode falls back to legacy-summary, because there is no valid on-chain evidence commitment.
+> 【Wait for output】The score drops to 0, trust tier untrusted. Why? The module breakdown shows Uniswap and BaseActivity scores are both 0 with 0% confidence — the system detected wash trade patterns and sybil cluster flags, and refused to give any score at all.
 
 ### 4.4 Compare — Side-by-side (45 seconds)
 
 **【Visual】** Run in terminal:
 ```bash
-pnpm cli compare --agents 8,10 --wallet 0x...
+rep compare 8 10
 ```
 
 **【Script】**
-> Finally, I'll use compare to put both Agents side-by-side. The output is stark: elite vs basic, correlation penalty 0 vs positive, verifiedEvidence true vs false.
+> Finally, I'll use compare to put both Agents side-by-side. The output is stark: verified vs untrusted, score 6692 vs 0.
 > 
-> For consumers, the decision is trivial: just look at the trust tier and evidence status.
+> For consumers, the decision is trivial: just look at the trust tier.
 
 ---
 
@@ -106,11 +102,11 @@ pnpm cli compare --agents 8,10 --wallet 0x...
 **【Visual】** Back to a slide showing a comparison table:
 | Metric | Good | Wash |
 |--------|------|------|
-| Raw Score | 9200 | 3400 |
-| Decayed Score | 8807 | 2876 |
-| Trust Tier | elite | basic |
-| Correlation Penalty | 0 | >0 |
-| Verified Evidence | ✅ | ❌ |
+| Raw Score | 6692 | 0 |
+| Decayed Score | 6692 | 0 |
+| Trust Tier | verified | untrusted |
+| Correlation Penalty | 0 | 0 |
+| Evidence Mode | legacy-summary | legacy-summary |
 
 **【Script】**
 > What does this comparison prove?
@@ -119,7 +115,7 @@ pnpm cli compare --agents 8,10 --wallet 0x...
 > 
 > Second, **anti-cheat is real-time.** Correlation and sybil detection don't require manual review; the contract deducts points automatically during computation.
 > 
-> Third, **evidence commitments provide verifiability.** Consumers don't just get a score — they can verify that the on-chain commitment actually exists.
+> Third, **the architecture is modular and extensible.** Adding new protocols like Aave only requires deploying a new module — the validator contract never needs to change.
 
 ---
 

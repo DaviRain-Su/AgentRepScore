@@ -123,7 +123,7 @@ Trust tier + evidence<br>commitment on-chain
 |--------|--------------|-------------|
 | **UniswapScoreModule** | Swap history on Uniswap | Volume, PnL, slippage, wash trade cycles |
 | **BaseActivityModule** | Wallet on-chain activity | Wallet age, tx count, counterparty diversity |
-| **AaveModule** | Aave V3 positions | Supply/borrow health, liquidation history |
+| **AaveModule** *(roadmap)* | Aave V3 positions | Supply/borrow health, liquidation history |
 
 <br>
 
@@ -149,12 +149,12 @@ $ rep evaluate 8
 
 | Field | Value |
 |-------|-------|
-| Raw Score | **9200** |
-| Decayed Score | **8807** |
-| Trust Tier | **elite** |
+| Raw Score | **6692** |
+| Decayed Score | **6692** |
+| Trust Tier | **verified** |
 | Correlation Penalty | 0 |
-| Verified Evidence | ✅ |
-| Evidence Mode | accepted-commitment |
+| Verified Evidence | — |
+| Evidence Mode | legacy-summary |
 
 </div>
 <div>
@@ -163,8 +163,8 @@ $ rep evaluate 8
 
 | Module | Score | Confidence |
 |--------|-------|-----------|
-| Uniswap | 9000 | 92% |
-| BaseActivity | 8500 | 88% |
+| Uniswap | 7500 | 100% |
+| BaseActivity | 5400 | 100% |
 
 **High volume, positive PnL, diverse counterparties**
 
@@ -186,11 +186,11 @@ $ rep evaluate 10
 
 | Field | Value |
 |-------|-------|
-| Raw Score | **3400** |
-| Decayed Score | **2876** |
-| Trust Tier | **basic** |
-| Correlation Penalty | > 0 |
-| Verified Evidence | ❌ |
+| Raw Score | **0** |
+| Decayed Score | **0** |
+| Trust Tier | **untrusted** |
+| Correlation Penalty | 0 |
+| Verified Evidence | — |
 | Evidence Mode | legacy-summary |
 
 </div>
@@ -200,8 +200,8 @@ $ rep evaluate 10
 
 | Module | Score | Confidence |
 |--------|-------|-----------|
-| Uniswap | 1800 | 45% |
-| BaseActivity | 4600 | 62% |
+| Uniswap | 0 | 0% |
+| BaseActivity | 0 | 0% |
 
 **Negative PnL, high slippage, wash trade detected**
 
@@ -220,12 +220,11 @@ $ rep compare 8 10
 
 | Metric | Agent 8 (Good) | Agent 10 (Wash) |
 |--------|---------------|----------------|
-| Raw Score | 9200 | 3400 |
-| Decayed Score | 8807 | 2876 |
-| Trust Tier | **elite** | **basic** |
-| Correlation Penalty | 0 | > 0 |
-| Verified Evidence | ✅ | ❌ |
-| Evidence Mode | accepted-commitment | legacy-summary |
+| Raw Score | 6692 | 0 |
+| Decayed Score | 6692 | 0 |
+| Trust Tier | **verified** | **untrusted** |
+| Correlation Penalty | 0 | 0 |
+| Evidence Mode | legacy-summary | legacy-summary |
 
 <br>
 
@@ -273,11 +272,11 @@ $ rep compare 8 10
 
 | Contract | Address |
 |----------|---------|
-| IdentityRegistry | `0x8004A169FB4a...9A432` |
-| ReputationRegistry | `0x8004BAa17C55...9b63` |
-| AgentRepValidatorV2 | `0x8B66EaD3b6A4...dbfB` |
-| UniswapScoreModule | `0xf99FFbfab2cb...76f8A` |
-| BaseActivityModule | `0xf0BF570B4B68...2996` |
+| MockIdentityRegistry | `0x0023254d...cee73b4d` |
+| MockReputationRegistry | `0xae1f6003...585fd6` |
+| AgentRepValidatorV2 (Proxy) | `0x89ae43e3...833379` |
+| UniswapScoreModule | `0x427c8969...2ff40` |
+| BaseActivityModule | `0x4b2b2453...c7fb5` |
 
 <br>
 
@@ -286,9 +285,9 @@ $ rep compare 8 10
 ```bash
 pnpm install
 cp .env.example .env  # Configure RPC + wallet
-rep query 8            # Query agent score
-rep evaluate 8         # Trigger on-chain evaluation
-rep compare 8 10       # Compare agents
+rep query 8            # Query good agent score
+rep query 10           # Query wash agent score
+rep compare 8 10       # Compare agents side-by-side
 ```
 
 ---

@@ -7,12 +7,12 @@
 
 ## 1. 开场钩子（30 秒）
 
-**【画面】** 黑屏切入项目 Logo，然后直接切到 CLI 输出：一个钱包评分 `8807 elite`，另一个评分 `2876 basic`。
+**【画面】** 黑屏切入项目 Logo，然后直接切到 CLI 输出：一个钱包评分 `6692 verified`，另一个评分 `0 untrusted`。
 
 **【台词】**
 > 大家好，我是 AgentRepScore 的开发者。今天我要展示的是：在 AI Agent 泛滥的时代，如何**用智能合约 itself 来验证 Agent 的链上声誉**，而不是相信任何人说的"我的数据是真的"。
 > 
-> 这是同一个钱包的两个画像：good profile 拿到 elite，wash profile 跌到 basic。区别不是我说了算，是**链上合约直接读取 Uniswap 和 Aave 的真实交易算出来的**。
+> 这是同一个钱包的两个画像：good profile 拿到 verified，wash profile 直接跌到 untrusted。区别不是我说了算，是**链上合约直接读取 Uniswap 和链上活动的真实数据算出来的**。
 
 ---
 
@@ -23,7 +23,7 @@
 **【台词】**
 > 现在的 AI Agent 评测大多是链下合成数据，开发者可以随便伪造交易记录、刷单、做假 PnL。
 > 
-> 我们的方案是：**把 eval 放到链上**。AgentRepValidator 合约直接读取 Uniswap 和 Aave 的链上数据，计算分数后写入 ERC-8004 Reputation Registry。
+> 我们的方案是：**把 eval 放到链上**。AgentRepValidator 合约直接读取 Uniswap 和链上活动数据，计算分数后写入 ERC-8004 Reputation Registry。
 > 
 > 消费方只看一件事：`clientAddress == 合约地址`。只有合约自己算出来的分数才被信任。这就是从根本上消除伪造。
 
@@ -32,24 +32,22 @@
 ## 3. 架构简介（60 秒）
 
 **【画面】** 展示架构图（可用文字版）：
-- Wallet → Uniswap / Aave / BaseActivity
+- Wallet → Uniswap / BaseActivity
 - ↓
 - AgentRepValidator (链上计算)
 - ↓
 - ERC-8004 ReputationRegistry
 - ↓
-- Skill API / CLI / 任意消费方
+- CLI Skill / 任意消费方
 
 **【台词】**
 > 我们的架构分成三层：
 > 
-> **第一层是数据源模块**：每个 DeFi 协议都是一个独立的 `IScoreModule`。目前有 Uniswap 交易模块、链上基础活动模块，以及刚集成的 Aave 模块。新增协议只需要部署一个新模块，主合约不用改。
+> **第一层是数据源模块**：每个 DeFi 协议都是一个独立的 `IScoreModule`。目前有 Uniswap 交易模块和链上基础活动模块。新增协议（如 Aave）只需要部署一个新模块，主合约不用改。
 > 
 > **第二层是验证层**：`AgentRepValidator` 合约读取所有模块的汇总数据，做三件事：wash trade 循环检测、counterparty 集中度惩罚、sybil 资金源集群检测。任何作弊行为都会直接扣分。
 > 
-> **第三层是消费层**：我们提供 Skill API 和 CLI。任何人都可以 `query` 一个钱包的评分，`evaluate` 重新计算，`compare` 对比多个 Agent。
-> 
-> 最关键的是：**所有输出都带 evidence status**。如果合约上的 evidence commitment 被接受，API 会返回 `verifiedEvidence: true` 和链上的 commitment 数据。
+> **第三层是消费层**：我们提供 CLI Skill，Code Agent 可以直接通过 shell 执行。任何人都可以 `query` 一个钱包的评分，`evaluate` 重新计算，`compare` 对比多个 Agent。
 
 ---
 
@@ -66,15 +64,15 @@
 
 **【画面】** 终端执行：
 ```bash
-pnpm cli evaluate --agent-id 8 --wallet 0x...
+rep query 8
 ```
 
 **【台词】**
-> 这是 Agent 8，good profile。运行 evaluate，合约会重新读取链上数据并计算分数。
+> 这是 Agent 8，good profile。运行 query，读取链上当前分数。
 > 
-> 【等待输出】我们看到：原始分 9200，经过 decay 后 8807，trust tier 是 elite。correlation 没有触发惩罚，module breakdown 显示 Uniswap 交易量高、PnL 为正、对手方分散。
+> 【等待输出】我们看到：原始分 6692，trust tier 是 verified。module breakdown 显示 Uniswap 评分 7500、BaseActivity 评分 5400，置信度都是 100%。
 > 
-> 更重要的是：**verifiedEvidence 为 true**，evidenceMode 是 accepted-commitment，说明链上 evidence commitment 已经被合约接受。这行 `commitment.root` 就是链上的 Merkle root。
+> 这说明这个钱包的链上行为是健康的：交易量高、PnL 为正、对手方分散。
 
 ### 4.3 Evaluate — Wash Wallet（45 秒）
 
@@ -83,21 +81,19 @@ pnpm cli evaluate --agent-id 8 --wallet 0x...
 **【台词】**
 > 现在看同一个钱包的 wash profile，Agent 10。
 > 
-> 【等待输出】分数直接跌到 2876，trust tier 是 basic。为什么？module breakdown 显示：Uniswap 滑点过高、PnL 为负，更关键的是 correlation penalty 被触发了——系统检测到了 wash trade 循环模式。
-> 
-> 同时 verifiedEvidence 是 false，evidenceMode 回到 legacy-summary，因为链上没有有效的 evidence commitment。
+> 【等待输出】分数直接跌到 0，trust tier 是 untrusted。为什么？module breakdown 显示：Uniswap 和 BaseActivity 的评分都是 0，置信度也是 0%——系统检测到了 wash trade 模式和 sybil 集群标记，直接拒绝给分。
 
 ### 4.4 Compare — 横向对比（45 秒）
 
 **【画面】** 终端执行：
 ```bash
-pnpm cli compare --agents 8,10 --wallet 0x...
+rep compare 8 10
 ```
 
 **【台词】**
-> 最后我用 compare 把两个 Agent 放在一起对比。输出很直观：elite vs basic，correlation penalty 0 vs 某个正数，verifiedEvidence true vs false。
+> 最后我用 compare 把两个 Agent 放在一起对比。输出很直观：verified vs untrusted，score 6692 vs 0。
 > 
-> 这对消费方来说决策成本极低：直接看 trust tier 和 evidence 状态就够了。
+> 消费方决策成本极低：直接看 trust tier 就够了。
 
 ---
 
@@ -106,11 +102,11 @@ pnpm cli compare --agents 8,10 --wallet 0x...
 **【画面】** 回到 PPT，展示一个对比表格：
 | 指标 | Good | Wash |
 |------|------|------|
-| Raw Score | 9200 | 3400 |
-| Decayed Score | 8807 | 2876 |
-| Trust Tier | elite | basic |
-| Correlation Penalty | 0 | >0 |
-| Verified Evidence | ✅ | ❌ |
+| Raw Score | 6692 | 0 |
+| Decayed Score | 6692 | 0 |
+| Trust Tier | verified | untrusted |
+| Correlation Penalty | 0 | 0 |
+| Evidence Mode | legacy-summary | legacy-summary |
 
 **【台词】**
 > 这个对比说明了什么？
@@ -119,7 +115,7 @@ pnpm cli compare --agents 8,10 --wallet 0x...
 > 
 > 第二，**反作弊是实时的**。correlation 和 sybil 检测不需要人工审核，合约在计算时直接扣分。
 > 
-> 第三，**evidence commitment 给了可验证性**。消费方不仅拿到分数，还能验证链上 commitment 是否真的存在。
+> 第三，**模块化可扩展**。未来增加 Aave 等新协议，只需部署新模块，主合约不用改。
 
 ---
 
